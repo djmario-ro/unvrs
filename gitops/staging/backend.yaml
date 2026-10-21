@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: unvrs-backend
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: unvrs-staging
+  source:
+    repoURL: harbor.cloud.retreat480.com/unvrs
+    chart: unvrs-backend
+    targetRevision: 0.1.0-ci.2.1
+    helm:
+      releaseName: unvrs-backend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: unvrs-staging
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
