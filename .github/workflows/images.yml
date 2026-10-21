@@ -1,10 +1,22 @@
-name: Build and publish container images
+name: Build and publish images and digest-locked charts
 
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'charts/**'
+      - 'scripts/package-chart.py'
+      - '.github/workflows/images.yml'
   push:
     branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'charts/**'
+      - 'scripts/package-chart.py'
+      - '.github/workflows/images.yml'
     tags: ['v*']
   workflow_dispatch:
 
@@ -33,6 +45,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0
+
+      - name: Validate Helm chart
+        run: helm lint charts/${{ matrix.component }}
+
       - name: Enable ARM64 builds
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
@@ -51,6 +71,7 @@ jobs:
           {
             echo 'tags<<EOF'
             echo "$image:sha-$GITHUB_SHA"
+            echo "$image:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
             if [[ "$GITHUB_REF" == 'refs/heads/main' ]]; then
               echo "$image:staging"
             elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -98,3 +119,57 @@ jobs:
             printf '%s\n' "$IMAGE_TAGS"
             printf '\nDigest: `%s`\n' "$IMAGE_DIGEST"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package and publish digest-locked chart
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          version="0.1.0-ci.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          python3 scripts/package-chart.py "charts/$COMPONENT" \
+            --version "$version" --app-version "$GITHUB_SHA" \
+            --repository "$REGISTRY/unvrs/$COMPONENT" --digest "$IMAGE_DIGEST"
+          export HELM_REGISTRY_CONFIG="$RUNNER_TEMP/helm-registry.json"
+          trap 'rm -f "$HELM_REGISTRY_CONFIG"' EXIT
+          printf '%s' "$HARBOR_PASSWORD" | helm registry login "$REGISTRY" \
+            --username "$HARBOR_USERNAME" --password-stdin
+          helm push "dist/charts/unvrs-$COMPONENT-$version.tgz" "oci://$REGISTRY/unvrs"
+          printf '\nChart: `unvrs-%s` version `%s` locks `%s`\n' \
+            "$COMPONENT" "$version" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+  database-chart:
+    name: Publish pinned database chart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0
+      - name: Validate database chart
+        run: helm lint charts/db
+      - name: Package and publish database chart
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          version="0.1.0-ci.$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
+          python3 scripts/package-chart.py charts/db \
+            --version "$version" --app-version "$GITHUB_SHA"
+          export HELM_REGISTRY_CONFIG="$RUNNER_TEMP/helm-registry.json"
+          trap 'rm -f "$HELM_REGISTRY_CONFIG"' EXIT
+          printf '%s' "$HARBOR_PASSWORD" | helm registry login "$REGISTRY" \
+            --username "$HARBOR_USERNAME" --password-stdin
+          helm push "dist/charts/unvrs-db-$version.tgz" "oci://$REGISTRY/unvrs"
+          printf '\nChart: `unvrs-db` version `%s` (PostgreSQL digest pinned in Git)\n' \
+            "$version" >> "$GITHUB_STEP_SUMMARY"

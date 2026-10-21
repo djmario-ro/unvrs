@@ -1,0 +1,21 @@
+image:
+  repository: harbor.cloud.retreat480.com/unvrs/frontend
+  digest: sha256:f16e574baf6400feb5a7cae9d105196fdf0497fe12ad7efc8f4925bdea055fb3
+  pullPolicy: IfNotPresent
+replicas: 1
+nodeSelector: {}
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: "1", memory: 512Mi}
+backendService: unvrs-backend
+backendPort: 8000
+auth:
+  enabled: true
+  existingSecret: unvrs-staging-basic-auth
+route:
+  enabled: true
+  hostname: unvrs-staging.cloud.retreat480.com
+  gatewayName: traefik-gateway
+  gatewayNamespace: traefik
+imagePullSecrets:
+  - name: harbor-unvrs-pull

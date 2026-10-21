@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: unvrs-staging
+  namespace: argocd
+spec:
+  description: UNVRS staging charts from Harbor
+  sourceRepos:
+    - harbor.cloud.retreat480.com/unvrs
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: unvrs-staging
+  clusterResourceWhitelist:
+    - group: ""
+      kind: PersistentVolume
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: unvrs-staging-root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/djmario-ro/unvrs.git
+    targetRevision: main
+    path: gitops/staging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true

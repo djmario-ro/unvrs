@@ -1,0 +1,13 @@
+image:
+  repository: harbor.cloud.retreat480.com/unvrs/backend
+  digest: sha256:cdc4cb1963843196aadb0748b8e9e8ded606cffef608e44c689ed1f6e8f96905
+  pullPolicy: IfNotPresent
+replicas: 1
+nodeSelector: {}
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: "1", memory: 512Mi}
+existingSecret: unvrs-backend-credentials
+frontendOrigin: https://unvrs-staging.cloud.retreat480.com
+imagePullSecrets:
+  - name: harbor-unvrs-pull

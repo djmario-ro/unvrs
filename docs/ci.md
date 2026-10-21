@@ -34,11 +34,27 @@ pull-request builds, and no pull_request_target workflow is used. The checkout
 step does not persist GitHub credentials. Build caches use GitHub Actions cache
 storage independently for frontend and backend.
 
-Build/push is the complete scope of this workflow. It does not change the
-running cluster. Existing staging still uses preloaded images until its Helm
-values are explicitly updated to Harbor references. A future deployment step
-should use a separate pull-only Harbor account and an imagePullSecret.
+Chart publication does not itself promote staging; an explicit chart-version
+commit in gitops/staging drives Argo CD.
 
 Frontend Docker builds use the committed package-lock.json with npm ci.
 Both application contexts exclude local secrets, dependencies and build outputs
 using .dockerignore files.
+
+## Digest-locked Helm publishing
+
+The workflow now also publishes `unvrs-frontend`, `unvrs-backend`, and `unvrs-db`
+OCI charts to Harbor. Application chart defaults contain each build's exact
+multi-architecture image-index digest. Database chart defaults contain the
+PostgreSQL digest committed in Git. Published chart versions are
+`0.1.0-ci.RUN_NUMBER.RUN_ATTEMPT`; appVersion records the source commit.
+
+Images additionally get unique `build-RUN_ID-RUN_ATTEMPT` tags, which keep
+older image digests referenced even when staging or commit tags move.
+Chart repository versions are immutable in Harbor. No automatic image retention
+policy is enabled; preserve all image indexes referenced by retained releases.
+
+Pull requests lint schemas and charts but do not publish. Chart publishing
+uses the existing CI pull/push robot. Argo CD and Kubernetes have separate
+pull-only robots. See charts/README.md for explicit Git-based promotion.
+GitOps-only and documentation commits do not trigger another image build.

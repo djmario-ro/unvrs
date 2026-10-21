@@ -106,3 +106,11 @@ npm run dev        # proxies /api → localhost:8000
 | GET | `/api/v1/audit` | Audit log |
 
 Full interactive docs at `/docs` (Swagger UI) or `/redoc`.
+
+## Kubernetes staging
+
+The Helm deployment uses three independent charts in `charts/db`,
+`charts/backend`, and `charts/frontend`. See [deployment instructions](charts/README.md)
+for image distribution, required secrets, storage, and repeat deployments.
+
+Staging: https://unvrs-staging.cloud.retreat480.com/admin (HTTP Basic login required).
