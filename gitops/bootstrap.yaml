@@ -10,20 +10,24 @@ spec:
   destinations:
     - server: https://kubernetes.default.svc
       namespace: unvrs-staging
-  clusterResourceWhitelist:
-    - group: ""
-      kind: PersistentVolume
+    - server: https://kubernetes.default.svc
+      namespace: postgres
+  clusterResourceWhitelist: []
   namespaceResourceWhitelist:
+    - group: postgresql.cnpg.io
+      kind: Database
+    - group: postgresql.cnpg.io
+      kind: DatabaseRole
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
     - group: ""
       kind: Service
     - group: ""
       kind: ConfigMap
-    - group: ""
-      kind: PersistentVolumeClaim
     - group: apps
       kind: Deployment
-    - group: apps
-      kind: StatefulSet
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
 ---

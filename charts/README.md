@@ -4,11 +4,10 @@ Three independent OCI Helm charts are published to Harbor:
 `unvrs-db`, `unvrs-backend` and `unvrs-frontend`, under
 `oci://harbor.cloud.retreat480.com/unvrs`.
 
-Every chart requires an image repository and SHA-256 digest. Its template
+Application charts require an image repository and SHA-256 digest. Each template
 renders `repository@sha256:...`; there is no tag fallback. JSON schemas reject
 missing/invalid digests and the old image.tag property. Backend/frontend use
-multi-architecture image-index digests. PostgreSQL is pinned to the existing
-16-alpine digest; dependency upgrades require a deliberate Git change.
+multi-architecture image-index digests. PostgreSQL images are pinned by the shared CloudNativePG Cluster, outside these application charts.
 
 CI packages a copy of each application chart with the exact digest emitted
 by that build. Chart versions are `0.1.0-ci.RUN_NUMBER.RUN_ATTEMPT` and appVersion
@@ -29,9 +28,8 @@ Both credentials live in Kubernetes Secrets; none are committed to Git.
 Application. The root watches `gitops/staging` on GitHub main. Three child
 Applications select exact OCI chart versions and preserve original release names.
 Their default values already contain the image locks; no runtime image-tag
-substitution is needed. Automatic prune is disabled. DB PV/PVC also carry
-Prune=false,Delete=false protections. Applications have no cascading deletion
-finalizers. Existing Helm release records are retained for history but Helm
+substitution is needed. Automatic prune is disabled. Database and role reclaim policies retain SQL objects. Applications have no cascading deletion
+finalizers. Backend/frontend Helm release records are retained for history but Helm
 must not independently upgrade these now Argo-managed resources.
 
 After a successful publish of all three charts, promote explicitly:
@@ -50,16 +48,9 @@ under the new attempt number; rerun all jobs for a coherent release version.
 
 ## Database and secrets
 
-The existing PostgreSQL data remains on k8s-cs-worker02 at
-`/var/lib/unvrs-staging/postgres`, on its retained local PV/PVC. Local storage
-is node-bound and its declared 5Gi capacity is not a filesystem quota. No
-replication or scheduled backups are provided by these charts. The initial
-Compose database was not migrated.
+UNVRS uses the shared three-instance `postgres/postgres-geo` CloudNativePG cluster with asynchronous replication between Sasca and Timișoara. The db chart creates its own `unvrs_staging` database and login. The legacy standalone database and its local data were deleted during cutover. Backup/PITR storage is still not configured.
 
-Existing staging secrets required: `unvrs-db-credentials` (POSTGRES_DB,
-POSTGRES_USER, POSTGRES_PASSWORD), `unvrs-backend-credentials` (DATABASE_URL,
-SECRET_KEY), and `unvrs-staging-basic-auth` (htpasswd). Secrets remain externally
-managed. The public frontend and API retain their staging Basic authentication.
+Externally managed Secrets: `postgres/unvrs-staging-db-credentials` (basic-auth username/password for the CNPG role), `unvrs-staging/unvrs-backend-credentials` (DATABASE_URL and SECRET_KEY), `unvrs-staging/harbor-unvrs-pull`, and `unvrs-staging/unvrs-staging-basic-auth` (htpasswd). DATABASE_URL uses the dedicated role, the shared write service, database `unvrs_staging`, and `?ssl=require`; update both credential Secrets together on password rotation and restart the backend. Public staging Basic authentication remains enabled.
 
 Validate locally with `helm lint charts/db charts/backend charts/frontend`.
 Package a release with `scripts/package-chart.py`; package only into an output
