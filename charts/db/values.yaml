@@ -1,15 +1,5 @@
-image:
-  repository: docker.io/library/postgres
-  digest: sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
-  pullPolicy: IfNotPresent
-existingSecret: unvrs-db-credentials
-resources:
-  requests: {cpu: 100m, memory: 128Mi}
-  limits: {cpu: "1", memory: 512Mi}
-persistence:
-  size: 5Gi
-  storageClass: unvrs-local
-  local:
-    enabled: true
-    node: k8s-cs-worker02
-    path: /var/lib/unvrs-staging/postgres
+# Install in the same namespace as the existing CNPG Cluster.
+clusterName: postgres-geo
+databaseName: unvrs_staging
+databaseOwner: unvrs_staging
+existingSecret: unvrs-staging-db-credentials

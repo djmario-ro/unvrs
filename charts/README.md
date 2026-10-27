@@ -65,3 +65,9 @@ Validate locally with `helm lint charts/db charts/backend charts/frontend`.
 Package a release with `scripts/package-chart.py`; package only into an output
 folder, not by modifying source values in place. `scripts/deploy-staging.sh`
 now explains the GitOps promotion path instead of invoking Helm upgrades.
+
+## CloudNativePG database
+
+The db chart now provisions `Database` and `DatabaseRole` resources, not a PostgreSQL StatefulSet or PVC. Install it in namespace `postgres` alongside the existing `postgres-geo` CNPG Cluster. Its generated basic-auth credential Secret `unvrs-staging-db-credentials` is provisioned separately; never commit passwords. The application has a dedicated non-superuser role `unvrs_staging` and database `unvrs_staging`. Backend credentials point at `postgres-geo-rw.postgres.svc.cluster.local`, using TLS. Deleting the Helm resources retains the SQL database and role; deliberate destruction is a separate operation. The shared cluster controls digest-pinned images, storage, replication, and failover.
+
+The October 2026 cutover intentionally discards the old standalone database and local PV data. Rolling back to an old db chart will recreate the obsolete StatefulSet; do not promote pre-CNPG charts as a rollback. The db Argo application targets `postgres`, while backend/frontend remain in `unvrs-staging`.

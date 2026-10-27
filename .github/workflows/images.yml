@@ -142,7 +142,7 @@ jobs:
             "$COMPONENT" "$version" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   database-chart:
-    name: Publish pinned database chart
+    name: Publish CloudNativePG database chart
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -171,5 +171,5 @@ jobs:
           printf '%s' "$HARBOR_PASSWORD" | helm registry login "$REGISTRY" \
             --username "$HARBOR_USERNAME" --password-stdin
           helm push "dist/charts/unvrs-db-$version.tgz" "oci://$REGISTRY/unvrs"
-          printf '\nChart: `unvrs-db` version `%s` (PostgreSQL digest pinned in Git)\n' \
+          printf '\nChart: `unvrs-db` version `%s` (Database and DatabaseRole resources on existing CNPG cluster)\n' \
             "$version" >> "$GITHUB_STEP_SUMMARY"

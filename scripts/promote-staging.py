@@ -12,6 +12,7 @@ if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', a.version):
 root = Path(__file__).resolve().parents[1] / 'gitops/staging'
 root.mkdir(parents=True, exist_ok=True)
 for component, wave in [('db', 0), ('backend', 10), ('frontend', 20)]:
+    namespace = 'postgres' if component == 'db' else 'unvrs-staging'
     text = f'''apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -29,7 +30,7 @@ spec:
       releaseName: unvrs-{component}
   destination:
     server: https://kubernetes.default.svc
-    namespace: unvrs-staging
+    namespace: {namespace}
   syncPolicy:
     automated:
       prune: false

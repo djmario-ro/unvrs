@@ -45,8 +45,8 @@ using .dockerignore files.
 
 The workflow now also publishes `unvrs-frontend`, `unvrs-backend`, and `unvrs-db`
 OCI charts to Harbor. Application chart defaults contain each build's exact
-multi-architecture image-index digest. Database chart defaults contain the
-PostgreSQL digest committed in Git. Published chart versions are
+multi-architecture image-index digest. The database chart declares Database and DatabaseRole resources on the existing
+CloudNativePG cluster; PostgreSQL images are pinned by that infrastructure Cluster. Published chart versions are
 `0.1.0-ci.RUN_NUMBER.RUN_ATTEMPT`; appVersion records the source commit.
 
 Images additionally get unique `build-RUN_ID-RUN_ATTEMPT` tags, which keep
