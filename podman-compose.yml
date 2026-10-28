@@ -25,11 +25,33 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guesthouse:guesthouse@db:5432/guesthouse
+      WHATSAPP_SERVICE_URL: http://whatsapp:3000
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
+
+  whatsapp:
+    build:
+      context: ./whatsapp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_TOKEN: ${WHATSAPP_API_TOKEN:?Set WHATSAPP_API_TOKEN in .env (shared secret with the backend)}
+    volumes:
+      - whatsapp_auth:/app/auth
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Internal-only service; the backend reaches it at http://whatsapp:3000.
+    expose:
+      - "3000"
 
   frontend:
     build:
@@ -43,3 +65,4 @@ services:
 
 volumes:
   pgdata:
+  whatsapp_auth:

@@ -1,91 +1,92 @@
-from datetime import datetime, timedelta, timezone
+import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import settings
 from app.database import get_db
 from app.models.guest_room import GuestRoom
-from app.models.token import Token
-from app.schemas.token import PinValidateRequest
+from app.models.room import Room
+from app.schemas.door import PinValidateRequest
 from app.utils import audit as audit_log
-from app.utils.pin import generate_token
+from app.utils import ratelimit
 
 router = APIRouter(prefix="/door", tags=["door"])
-
-COOKIE_NAME = "guesthouse_session"
+logger = logging.getLogger("app.door")
 
 
 @router.post("/validate-pin")
 async def validate_pin(
     body: PinValidateRequest,
-    response: Response,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Validate a guest PIN for a given room.
-    On success, issue an httponly session cookie.
-    """
+    """Validate a guest PIN for a room. Public, one-shot check, rate-limited."""
     now = datetime.now(tz=timezone.utc)
+    ip = ratelimit.client_ip(request)
+    # Per-room cap blunts distributed brute force; per-IP cap stops one client
+    # from hammering many rooms.
+    ratelimit.enforce(f"door:room:{body.room_public_id}", max_attempts=10, window_seconds=60)
+    ratelimit.enforce(f"door:ip:{ip}", max_attempts=20, window_seconds=60)
 
-    result = await db.execute(
-        select(GuestRoom)
-        .where(GuestRoom.room_id == body.room_id, GuestRoom.pin == body.pin)
-        .options(selectinload(GuestRoom.room), selectinload(GuestRoom.guest))
+    room_result = await db.execute(
+        select(Room).where(Room.public_id == body.room_public_id)
     )
-    assignment = result.scalar_one_or_none()
-
-    if not assignment:
+    room = room_result.scalar_one_or_none()
+    if not room:
+        # Don't reveal whether the room link is valid.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid PIN"
         )
 
-    # Check check-out hasn't passed
-    if assignment.check_out and assignment.check_out < now:
+    # The stay window is part of the match and every failure is the same 401,
+    # so the response never reveals that a PIN belongs to a past or future stay.
+    result = await db.execute(
+        select(GuestRoom)
+        .where(
+            GuestRoom.room_id == room.id,
+            GuestRoom.pin == body.pin,
+            or_(GuestRoom.check_in.is_(None), GuestRoom.check_in <= now),
+            or_(GuestRoom.check_out.is_(None), GuestRoom.check_out >= now),
+        )
+        .options(selectinload(GuestRoom.room), selectinload(GuestRoom.guest))
+        .limit(1)
+    )
+    assignment = result.scalar_one_or_none()
+
+    if not assignment:
+        logger.info(
+            "Door PIN rejected: room id=%s ip=%s xff=%r",
+            room.id,
+            ip,
+            request.headers.get("x-forwarded-for", "")[:200],
+        )
+        # Own transaction: the 401 rolls the request's session back.
+        await audit_log.log_detached("door.pin_rejected", f"Wrong PIN at room id={room.id}")
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your stay has ended",
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid PIN"
         )
 
-    # Create session token
-    raw_token = generate_token()
-    valid_until = now + timedelta(hours=settings.access_token_expire_hours)
-    token = Token(
-        assignment_id=assignment.id,
-        token=raw_token,
-        valid_until=valid_until,
-    )
-    db.add(token)
+    # First valid PIN entry checks the guest in (booked -> checked in).
+    first_entry = assignment.checked_in_at is None
+    if first_entry:
+        assignment.checked_in_at = now
+        await audit_log.log(
+            db,
+            "door.checkin",
+            f"Guest checked in: guest id={assignment.guest_id} room id={room.id}",
+        )
 
     await audit_log.log(
         db,
         "door.access",
-        f"Door access granted: guest id={assignment.guest_id} room id={body.room_id}",
-    )
-
-    await db.flush()
-
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=raw_token,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
-        max_age=settings.access_token_expire_hours * 3600,
-        path="/",
+        f"Door access granted: guest id={assignment.guest_id} room id={room.id}",
     )
 
     return {
         "message": "Access granted",
         "guest": f"{assignment.guest.firstname} {assignment.guest.lastname}",
         "room": assignment.room.name,
-        "valid_until": valid_until.isoformat(),
     }
-
-
-@router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie(key=COOKIE_NAME)
-    return {"message": "Logged out"}

@@ -1,6 +1,7 @@
 # Environment
 .env
-.env.local
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -20,6 +21,19 @@ frontend/dist/
 .idea/
 *.swp
 
+# Local compose override (machine-specific ports)
+docker-compose.override.yml
+
+# WhatsApp linked-device session (lives in a Docker volume, never committed)
+whatsapp/auth/
+
+# Logs
+*.log
+npm-debug.log*
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Local audit report, not part of the codebase
+CODEBASE_AUDIT.md

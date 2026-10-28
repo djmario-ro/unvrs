@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,9 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 @router.get("", response_model=list[AuditRead])
 async def list_audit(
-    skip: int = 0, limit: int = 200, db: AsyncSession = Depends(get_db)
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Audit).order_by(Audit.created_at.desc()).offset(skip).limit(limit)

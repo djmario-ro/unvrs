@@ -28,5 +28,5 @@ class Guest(Base):
     )
 
     assignments: Mapped[list["GuestRoom"]] = relationship(
-        "GuestRoom", back_populates="guest", cascade="all, delete-orphan"
+        "GuestRoom", back_populates="guest", cascade="all, delete-orphan", passive_deletes=True
     )

@@ -7,6 +7,9 @@ interface Props {
   title?: string;
   message: string;
   loading?: boolean;
+  /** Button text; defaults to Delete / Deleting… */
+  confirmLabel?: string;
+  loadingLabel?: string;
 }
 
 export default function ConfirmDialog({
@@ -16,6 +19,8 @@ export default function ConfirmDialog({
   title = "Confirm",
   message,
   loading,
+  confirmLabel = "Delete",
+  loadingLabel = "Deleting…",
 }: Props) {
   return (
     <Modal open={open} onClose={onClose} title={title} size="sm">
@@ -25,7 +30,7 @@ export default function ConfirmDialog({
           Cancel
         </button>
         <button className="btn-danger" onClick={onConfirm} disabled={loading}>
-          {loading ? "Deleting…" : "Delete"}
+          {loading ? loadingLabel : confirmLabel}
         </button>
       </div>
     </Modal>
