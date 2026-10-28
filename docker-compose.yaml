@@ -1,0 +1,117 @@
+# Production Docker Compose for Coolify.
+# Local development still uses podman-compose.yml.
+#
+# Set these in Coolify → your resource → "Environment Variables":
+#   SECRET_KEY          (required) long random string
+#   ADMIN_PASSWORD      (required) master admin password (ADMIN_USERNAME defaults to "admin")
+#   WHATSAPP_API_TOKEN  (required) shared secret between backend and the WhatsApp
+#                       sidecar; the sidecar refuses to start without it
+#   FRONTEND_ORIGIN     (required) public URL, e.g. https://example.com
+#                       — used for door QR links and CORS
+#   FRONTEND_FQDN       (required) the same domain without the scheme; Coolify
+#                       routes it to the frontend container
+#   TIMEZONE            IANA zone for stay dates in guest messages
+#                       (default Europe/Bucharest)
+#   POSTGRES_PASSWORD   (recommended) database password
+#   GUESTHOUSE_NAME     sender name shown in guest PIN messages
+#   SMS_GATEWAY_URL / SMS_GATEWAY_USERNAME / SMS_GATEWAY_PASSWORD  (optional SMS)
+#   TRUSTED_PROXIES     networks of the proxies in front of the backend; rate
+#                       limiting skips them when reading X-Forwarded-For.
+#                       Default "private,cloudflare" (Traefik, nginx, Cloudflare).
+#                       Use "private" if the domain is not proxied by Cloudflare.
+# Coolify generates the public domain for the `frontend` service via the
+# SERVICE_FQDN_FRONTEND_80 magic variable below (or set a custom domain in the UI).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-guesthouse}
+      POSTGRES_USER: ${POSTGRES_USER:-guesthouse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-guesthouse}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-guesthouse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-guesthouse}:${POSTGRES_PASSWORD:-guesthouse}@db:5432/${POSTGRES_DB:-guesthouse}
+      WHATSAPP_SERVICE_URL: http://whatsapp:3000
+      WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:?WHATSAPP_API_TOKEN is required (shared secret with the sidecar)}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private,cloudflare}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required (generate a long random value)}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required (do not use the default)}
+      DEBUG: ${DEBUG:-false}
+      GUESTHOUSE_NAME: ${GUESTHOUSE_NAME:-Guesthouse}
+      DEFAULT_COUNTRY_CODE: ${DEFAULT_COUNTRY_CODE:-40}
+      TIMEZONE: ${TIMEZONE:-Europe/Bucharest}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required (public URL; used for CORS and the door QR links)}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      SMS_GATEWAY_URL: ${SMS_GATEWAY_URL:-}
+      SMS_GATEWAY_USERNAME: ${SMS_GATEWAY_USERNAME:-}
+      SMS_GATEWAY_PASSWORD: ${SMS_GATEWAY_PASSWORD:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  whatsapp:
+    build:
+      context: ./whatsapp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      API_TOKEN: ${WHATSAPP_API_TOKEN:?WHATSAPP_API_TOKEN is required (shared secret with the sidecar)}
+    volumes:
+      - whatsapp_auth:/app/auth
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    expose:
+      - "3000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      # Coolify routes this domain to the frontend's port 80 (and issues SSL).
+      # Must match the domain configured in the Coolify UI.
+      - SERVICE_FQDN_FRONTEND_80=${FRONTEND_FQDN:?FRONTEND_FQDN is required (the public domain, e.g. guesthouse.example.com)}
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "80"
+
+volumes:
+  pgdata:
+  whatsapp_auth:

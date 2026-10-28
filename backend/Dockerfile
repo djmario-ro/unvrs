@@ -10,6 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Run as an unprivileged user; nothing here needs root at runtime.
+RUN useradd --create-home --uid 10001 app && chown -R app /app
+USER app
+
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Apply database migrations, then start the API server.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

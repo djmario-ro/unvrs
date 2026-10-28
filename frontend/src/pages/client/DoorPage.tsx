@@ -3,20 +3,20 @@ import { useParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { DoorOpen, Delete, CheckCircle, XCircle, Hotel } from "lucide-react";
 import { clsx } from "clsx";
-import { format } from "date-fns";
 import { validatePin } from "../../api/door";
 import type { DoorAccessResult } from "../../api/types";
 
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 
 export default function DoorPage() {
-  const { roomId } = useParams<{ roomId: string }>();
+  const { roomHash } = useParams<{ roomHash: string }>();
   const [pin, setPin] = useState("");
   const [result, setResult] = useState<DoorAccessResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resetState = () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
     setPin("");
     setResult(null);
     setErrorMsg(null);
@@ -33,7 +33,10 @@ export default function DoorPage() {
   }, []);
 
   const mutation = useMutation({
-    mutationFn: () => validatePin(Number(roomId), pin),
+    // The PIN is passed in explicitly: reading `pin` from state here would see
+    // the previous render's value, since mutate() runs before React commits
+    // the setPin() from the same tap.
+    mutationFn: (fullPin: string) => validatePin(roomHash ?? "", fullPin),
     onSuccess: (data) => {
       setResult(data);
       setErrorMsg(null);
@@ -55,7 +58,7 @@ export default function DoorPage() {
     const next = pin + digit;
     setPin(next);
     if (next.length === 6) {
-      mutation.mutate();
+      mutation.mutate(next);
     }
   };
 
@@ -71,10 +74,6 @@ export default function DoorPage() {
             </p>
             <p className="text-green-300/70 text-sm mt-1">{result.room}</p>
           </div>
-          <p className="text-xs text-green-300/50">
-            Session valid until{" "}
-            {format(new Date(result.valid_until), "HH:mm, dd MMM")}
-          </p>
           <p className="text-xs text-green-300/40 mt-6">
             Screen resets in 10 seconds…
           </p>
@@ -115,7 +114,7 @@ export default function DoorPage() {
             <DoorOpen size={32} className="text-white" />
           </div>
           <p className="text-white text-xl font-semibold">Enter your PIN</p>
-          <p className="text-brand-200/60 text-sm">Room {roomId}</p>
+          <p className="text-brand-200/60 text-sm">Scan complete — enter your code</p>
         </div>
 
         {/* PIN dots */}
@@ -168,7 +167,7 @@ function DoorScreen({ children }: { children: React.ReactNode }) {
       <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 opacity-40">
         <Hotel size={18} className="text-white" />
         <span className="text-white text-sm font-medium tracking-wider uppercase">
-          Guesthouse
+          Retreat 480
         </span>
       </div>
       {children}

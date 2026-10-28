@@ -9,6 +9,8 @@ import type { Guest } from "../../api/types";
 import Modal from "../../components/Modal";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Spinner from "../../components/Spinner";
+import ErrorState from "../../components/ErrorState";
+import { invalidateGuestViews } from "../../lib/queries";
 
 type FormData = {
   firstname: string;
@@ -30,7 +32,7 @@ const empty: FormData = {
 
 export default function GuestsPage() {
   const qc = useQueryClient();
-  const { data: guests = [], isLoading } = useQuery({
+  const { data: guests = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["guests"],
     queryFn: getGuests,
   });
@@ -82,7 +84,7 @@ export default function GuestsPage() {
   const deleteMutation = useMutation({
     mutationFn: () => deleteGuest(deleteTarget!.id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["guests"] });
+      invalidateGuestViews(qc);
       toast.success("Guest deleted");
       setDeleteTarget(null);
     },
@@ -93,8 +95,8 @@ export default function GuestsPage() {
     setForm((f) => ({ ...f, [field]: e.target.value }));
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Guests</h1>
           <p className="text-sm text-gray-500 mt-1">{guests.length} total</p>
@@ -104,7 +106,9 @@ export default function GuestsPage() {
         </button>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState what="guests" error={error} onRetry={() => refetch()} />
+      ) : isLoading ? (
         <div className="flex justify-center py-20">
           <Spinner size={32} />
         </div>
@@ -114,7 +118,7 @@ export default function GuestsPage() {
           <p>No guests yet. Add one to get started.</p>
         </div>
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100">
             <thead className="bg-gray-50">
               <tr>
