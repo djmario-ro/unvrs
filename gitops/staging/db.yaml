@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: harbor.cloud.retreat480.com/unvrs
     chart: unvrs-db
-    targetRevision: 0.2.1
+    targetRevision: 0.1.0-ci.7.1
     helm:
       releaseName: unvrs-db
   destination:
