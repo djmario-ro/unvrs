@@ -85,8 +85,12 @@ Alembic baseline: do not stamp it or run the initial migrations over it.
    `argocd/unvrs-staging-root` and `argocd/unvrs-backend` Applications, in that
    order. Confirm neither has a sync operation in progress. This prevents
    reconciliation from restarting the old backend while the schema is reset.
-3. Scale `unvrs-staging/unvrs-backend` to zero and wait for its pods to terminate.
-4. Run the guarded reset, using the newly published backend digest:
+3. While the root is paused, commit and push the new versions with
+   `scripts/promote-staging.py VERSION`. Pin the paused root Application's
+   `spec.source.targetRevision` to the full 40-character promotion commit SHA.
+   This prevents cached resolution of `main` from restarting the old backend.
+4. Scale `unvrs-staging/unvrs-backend` to zero and wait for its pods to terminate.
+   Run the guarded reset, using the newly published backend digest:
 
    ```sh
    python3 scripts/reset-staging-db.py --context sasca \
@@ -97,13 +101,19 @@ Alembic baseline: do not stamp it or run the initial migrations over it.
    It validates the database, role, shared CNPG host, and required TLS setting
    before dropping/recreating only `unvrs_staging.public`. It uses the existing
    application Secret and never deletes the CNPG cluster, database, or role.
-5. Commit the new versions with `scripts/promote-staging.py VERSION`. Restore
-   the root Application's automatic sync by reapplying `gitops/bootstrap.yaml`.
-   The root restores child automatic sync from Git; the backend PreSync Job
-   applies migrations before the Deployment starts.
-6. Confirm all three Applications are Synced/Healthy, the migration Job succeeds,
+5. Re-enable automatic sync on the root while keeping its source pinned to
+   that exact commit. The root restores child automatic sync from Git; the
+   backend PreSync Job applies migrations before the Deployment starts.
+6. Confirm all three Applications are Synced/Healthy at the new chart version,
+   the backend actually runs the published image with one available replica,
    and staff login, room/photo creation, bookings, and door PIN validation work.
-   Delete the completed `unvrs-schema-reset-*` Job after verification.
+   Delete the completed `unvrs-schema-reset-*` Jobs after verification.
+7. Pause root automatic sync again, change its source back to `main`, and request
+   a hard refresh. Wait until `status.sync.revision` resolves to the promotion
+   commit or a verified newer commit containing the same release versions.
+   Only then reapply `gitops/bootstrap.yaml` to restore normal automatic tracking.
+   Do not rely on Synced/Healthy alone: manifest-fetch errors and stale status
+   can mask a stopped backend. Inspect Application conditions and pod images.
 
 After this destructive cutover, do not promote v1 application charts against the
 new schema. A return to v1 requires another deliberate schema reset.

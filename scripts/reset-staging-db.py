@@ -36,6 +36,8 @@ def main():
             parser.error(f"Pause automatic sync for {app['metadata']['name']} before resetting")
         if app.get('operation') or app.get('status', {}).get('operationState', {}).get('phase') in ('Running', 'Terminating'):
             parser.error(f"Wait for {app['metadata']['name']} sync to finish before resetting")
+    if not re.fullmatch(r'[a-f0-9]{40}', root['spec']['source']['targetRevision']):
+        parser.error('Pin the paused root Application to the exact promotion commit first')
     deployment = get('deployment', 'unvrs-backend')
     if deployment['spec'].get('replicas', 1) != 0 or deployment.get('status', {}).get('replicas', 0) != 0:
         parser.error('Scale unvrs-backend to zero and wait for all old pods to terminate')
