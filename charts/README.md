@@ -50,7 +50,7 @@ under the new attempt number; rerun all jobs for a coherent release version.
 
 UNVRS uses the shared three-instance `postgres/postgres-geo` CloudNativePG cluster with asynchronous replication between Sasca and Timișoara. The db chart creates its own `unvrs_staging` database and login. The legacy standalone database and its local data were deleted during cutover. Backup/PITR storage is still not configured.
 
-Externally managed Secrets: `postgres/unvrs-staging-db-credentials` (basic-auth username/password for the CNPG role), `unvrs-staging/unvrs-backend-credentials` (DATABASE_URL and SECRET_KEY), `unvrs-staging/harbor-unvrs-pull`, and `unvrs-staging/unvrs-staging-basic-auth` (htpasswd). DATABASE_URL uses the dedicated role, the shared write service, database `unvrs_staging`, and `?ssl=require`; update both credential Secrets together on password rotation and restart the backend. Public staging Basic authentication remains enabled.
+Externally managed Secrets: `postgres/unvrs-staging-db-credentials` (basic-auth username/password for the CNPG role), `unvrs-staging/unvrs-backend-credentials` (DATABASE_URL and SECRET_KEY), `unvrs-staging/harbor-unvrs-pull`, and `unvrs-staging/homeassistant-api` (HA_TOKEN). DATABASE_URL uses the dedicated role, the shared write service, database `unvrs_staging`, and `?ssl=require`; update both credential Secrets together on password rotation and restart the backend. HTTP Basic authentication is disabled (`auth.enabled: false`). The application session protects staff APIs; guest door pages and PIN validation are public.
 
 Validate locally with `helm lint charts/db charts/backend charts/frontend`.
 Package a release with `scripts/package-chart.py`; package only into an output
@@ -69,7 +69,9 @@ do not run the reset script during ordinary promotions.
 Keep `DATABASE_URL` and `SECRET_KEY` in `unvrs-backend-credentials`. Add a strong
 `ADMIN_PASSWORD` and optionally `ADMIN_USERNAME` (default `admin`). The configured
 admin is reconciled on startup; changing its password revokes previous sessions.
-The chart retains HTTPS cookies, the staging origin, and Basic authentication.
+The chart retains HTTPS cookies and the staging origin. Staff use application
+login; the master admin credentials come from the backend Secret. HTTP Basic
+is disabled so printed room QR links work without any staff login.
 Staff sign in at `/login`, then use `/app`; old `/admin` links redirect there.
 Room photos are stored in PostgreSQL. The Helm Nginx config allows 6 MB requests
 while the API enforces a 5 MB image limit.
