@@ -1,4 +1,16 @@
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.utils.homeassistant import DoorUnavailable
 from tests.conftest import book, days, make_room
+
+
+@pytest.fixture(autouse=True)
+def opener(monkeypatch):
+    action = AsyncMock()
+    monkeypatch.setattr("app.routers.door.open_door", action)
+    return action
 
 
 async def validate(anon, room, pin, **kw):
@@ -9,12 +21,14 @@ async def validate(anon, room, pin, **kw):
     )
 
 
-async def test_current_stay_opens_and_checks_in(admin, anon, guest, room):
+async def test_current_stay_opens_and_checks_in(admin, anon, guest, room, opener):
     a = (await book(admin, guest, room, days(-0.1), days(1))).json()
     assert a["checked_in_at"] is None
     r = await validate(anon, room, a["pin"])
     assert r.status_code == 200, r.text
     assert r.json()["guest"] == "Ana Pop"
+    assert r.json()["message"] == "Door unlock triggered"
+    opener.assert_awaited_once_with(room["public_id"])
     after = (await admin.get(f"/api/v1/assignments/{a['id']}")).json()
     assert after["checked_in_at"] is not None
     floors = (await admin.get("/api/v1/dashboard/floors")).json()
@@ -23,7 +37,7 @@ async def test_current_stay_opens_and_checks_in(admin, anon, guest, room):
 
 
 async def test_pin_outside_stay_window_is_indistinguishable_from_wrong_pin(
-    admin, anon, guest, room
+    admin, anon, guest, room, opener
 ):
     past = (await book(admin, guest, room, days(-10), days(-8))).json()
     future = (await book(admin, guest, room, days(5), days(7))).json()
@@ -32,6 +46,18 @@ async def test_pin_outside_stay_window_is_indistinguishable_from_wrong_pin(
         r = await validate(anon, room, pin)
         assert r.status_code == 401
         assert r.json() == wrong.json()
+    opener.assert_not_awaited()
+
+
+async def test_failed_door_action_does_not_check_in(admin, anon, guest, room, opener):
+    booking = (await book(admin, guest, room, days(-0.1), days(1))).json()
+    opener.side_effect = DoorUnavailable("Unable to confirm door opening. Please contact reception.")
+    response = await validate(anon, room, booking["pin"])
+    assert response.status_code == 503
+    after = (await admin.get(f"/api/v1/assignments/{booking['id']}")).json()
+    assert after["checked_in_at"] is None
+    events = (await admin.get("/api/v1/audit")).json()
+    assert any(e["operation"] == "door.open_failed" and f"room id={room['id']}" in e["message"] for e in events)
 
 
 async def test_unknown_room_and_malformed_pin(anon, room):

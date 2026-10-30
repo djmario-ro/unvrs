@@ -10,7 +10,7 @@ resources:
 backendService: unvrs-backend
 backendPort: 8000
 auth:
-  enabled: true
+  enabled: false
   existingSecret: unvrs-staging-basic-auth
 route:
   enabled: true

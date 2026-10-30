@@ -1,5 +1,6 @@
-from typing import Literal
+from typing import Annotated, Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,12 @@ class Settings(BaseSettings):
     # link-local: nginx, Traefik) and "cloudflare". Rate limiting walks
     # X-Forwarded-For from the right, skipping these, to find the client IP.
     trusted_proxies: str = "private"
+
+    # Backend-only Home Assistant integration. Map permanent room public IDs
+    # to explicit door scripts; never accept the target from a guest request.
+    ha_url: str = ""
+    ha_token: str = ""
+    ha_door_scripts: dict[str, Annotated[str, Field(pattern=r"^script\.[a-z0-9_]+$")]] = {}
 
     # Default country code (no +) used to turn locally-formatted numbers such
     # as "0743..." into international "40743..." before sending

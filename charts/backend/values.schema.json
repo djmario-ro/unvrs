@@ -31,6 +31,32 @@
           ]
         }
       }
+    },
+    "homeAssistant": {
+      "type": "object",
+      "required": [
+        "existingSecret",
+        "url",
+        "doorScripts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://[^ /]+/?$"
+        },
+        "doorScripts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^script\\.[a-z0-9_]+$"
+          }
+        }
+      }
     }
   }
 }

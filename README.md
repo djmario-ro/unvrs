@@ -18,8 +18,10 @@ Interactive API documentation is available at the backend's `/docs` endpoint.
 
 ## Kubernetes staging
 
-Staging: https://unvrs-staging.cloud.retreat480.com/login (HTTP Basic login,
-followed by application staff login).
+Staging staff login: https://unvrs-staging.cloud.retreat480.com/login.
+Staff use the application account configured in the backend Kubernetes Secret.
+HTTP Basic authentication is disabled. Room QR pages and PIN validation are
+public; opening a door still requires a PIN valid for that room's current stay.
 
 The existing main-branch delivery system is retained: multi-architecture images
 and digest-locked OCI charts in Harbor, explicitly promoted through Argo CD.
