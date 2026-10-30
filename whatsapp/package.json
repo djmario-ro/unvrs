@@ -1,0 +1,16 @@
+{
+  "name": "guesthouse-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WhatsApp sidecar (Baileys) that links the guesthouse's own number and sends PIN messages",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.0",
+    "express": "^4.21.0",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}

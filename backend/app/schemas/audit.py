@@ -9,4 +9,6 @@ class AuditRead(BaseModel):
     id: int
     operation: str
     message: str
+    actor: str | None  # staff username; None for door/system events
+    ip: str | None
     created_at: datetime

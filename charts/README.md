@@ -57,6 +57,66 @@ Package a release with `scripts/package-chart.py`; package only into an output
 folder, not by modifying source values in place. `scripts/deploy-staging.sh`
 now explains the GitOps promotion path instead of invoking Helm upgrades.
 
+## Staff application rollout
+
+The application now uses Alembic instead of creating tables on startup. The
+backend chart runs a digest-locked migration Job as an Argo CD PreSync hook
+(or Helm pre-install/pre-upgrade hook). A failed migration blocks rollout.
+Apply `gitops/bootstrap.yaml` before the first promotion to grant the staging
+AppProject permission to manage Jobs. Subsequent deploys migrate automatically;
+do not run the reset script during ordinary promotions.
+
+Keep `DATABASE_URL` and `SECRET_KEY` in `unvrs-backend-credentials`. Add a strong
+`ADMIN_PASSWORD` and optionally `ADMIN_USERNAME` (default `admin`). The configured
+admin is reconciled on startup; changing its password revokes previous sessions.
+The chart retains HTTPS cookies, the staging origin, and Basic authentication.
+Staff sign in at `/login`, then use `/app`; old `/admin` links redirect there.
+Room photos are stored in PostgreSQL. The Helm Nginx config allows 6 MB requests
+while the API enforces a 5 MB image limit.
+
+### One-time reset from v1 (existing UNVRS data is discarded)
+
+Wait for the new main-branch CI run to publish all three charts successfully.
+Record its chart version and backend image digest. The old v1 schema is not an
+Alembic baseline: do not stamp it or run the initial migrations over it.
+
+1. Apply `kubectl apply -f gitops/bootstrap.yaml` to allow migration Jobs.
+2. Temporarily remove `spec.syncPolicy.automated` from both
+   `argocd/unvrs-staging-root` and `argocd/unvrs-backend` Applications, in that
+   order. Confirm neither has a sync operation in progress. This prevents
+   reconciliation from restarting the old backend while the schema is reset.
+3. Scale `unvrs-staging/unvrs-backend` to zero and wait for its pods to terminate.
+4. Run the guarded reset, using the newly published backend digest:
+
+   ```sh
+   python3 scripts/reset-staging-db.py --context sasca \
+     --image harbor.cloud.retreat480.com/unvrs/backend@sha256:NEW_DIGEST \
+     --confirm-reset unvrs_staging
+   ```
+
+   It validates the database, role, shared CNPG host, and required TLS setting
+   before dropping/recreating only `unvrs_staging.public`. It uses the existing
+   application Secret and never deletes the CNPG cluster, database, or role.
+5. Commit the new versions with `scripts/promote-staging.py VERSION`. Restore
+   the root Application's automatic sync by reapplying `gitops/bootstrap.yaml`.
+   The root restores child automatic sync from Git; the backend PreSync Job
+   applies migrations before the Deployment starts.
+6. Confirm all three Applications are Synced/Healthy, the migration Job succeeds,
+   and staff login, room/photo creation, bookings, and door PIN validation work.
+   Delete the completed `unvrs-schema-reset-*` Job after verification.
+
+After this destructive cutover, do not promote v1 application charts against the
+new schema. A return to v1 requires another deliberate schema reset.
+
+### Messaging
+
+WhatsApp source is retained in `whatsapp/`, but the current three-chart pipeline
+does not build or deploy it. Leave `WHATSAPP_SERVICE_URL` and `SMS_GATEWAY_URL`
+unset for the initial rollout: deliveries are recorded as `mocked`, not sent.
+Deploying WhatsApp later needs its own image/chart, internal Service, persistent
+linked-device session storage, and matching `WHATSAPP_API_TOKEN`/`API_TOKEN`
+Secrets. Do not use the friend's Coolify Compose stack for cluster deployment.
+
 ## CloudNativePG database
 
 The db chart now provisions `Database` and `DatabaseRole` resources, not a PostgreSQL StatefulSet or PVC. Install it in namespace `postgres` alongside the existing `postgres-geo` CNPG Cluster. Its generated basic-auth credential Secret `unvrs-staging-db-credentials` is provisioned separately; never commit passwords. The application has a dedicated non-superuser role `unvrs_staging` and database `unvrs_staging`. Backend credentials point at `postgres-geo-rw.postgres.svc.cluster.local`, using TLS. Deleting the Helm resources retains the SQL database and role; deliberate destruction is a separate operation. The shared cluster controls digest-pinned images, storage, replication, and failover.
