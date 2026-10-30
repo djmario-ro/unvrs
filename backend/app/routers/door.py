@@ -12,9 +12,11 @@ from app.models.room import Room
 from app.schemas.door import PinValidateRequest
 from app.utils import audit as audit_log
 from app.utils import ratelimit
+from app.utils.homeassistant import DoorUnavailable, open_door
 
 router = APIRouter(prefix="/door", tags=["door"])
 logger = logging.getLogger("app.door")
+PIN_REJECTED = "Invalid PIN or outside the booking dates"
 
 
 @router.post("/validate-pin")
@@ -38,7 +40,7 @@ async def validate_pin(
     if not room:
         # Don't reveal whether the room link is valid.
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid PIN"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=PIN_REJECTED
         )
 
     # The stay window is part of the match and every failure is the same 401,
@@ -64,10 +66,16 @@ async def validate_pin(
             request.headers.get("x-forwarded-for", "")[:200],
         )
         # Own transaction: the 401 rolls the request's session back.
-        await audit_log.log_detached("door.pin_rejected", f"Wrong PIN at room id={room.id}")
+        await audit_log.log_detached("door.pin_rejected", f"Invalid or out-of-window PIN at room id={room.id}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid PIN"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=PIN_REJECTED
         )
+
+    try:
+        await open_door(room.public_id)
+    except DoorUnavailable as exc:
+        await audit_log.log_detached("door.open_failed", f"Door action not confirmed: room id={room.id}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     # First valid PIN entry checks the guest in (booked -> checked in).
     first_entry = assignment.checked_in_at is None
@@ -82,11 +90,11 @@ async def validate_pin(
     await audit_log.log(
         db,
         "door.access",
-        f"Door access granted: guest id={assignment.guest_id} room id={room.id}",
+        f"Door script completed: guest id={assignment.guest_id} room id={room.id}",
     )
 
     return {
-        "message": "Access granted",
+        "message": "Door unlock triggered",
         "guest": f"{assignment.guest.firstname} {assignment.guest.lastname}",
         "room": assignment.room.name,
     }

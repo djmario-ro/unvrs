@@ -68,7 +68,7 @@ export default function DoorPage() {
         <div className="flex flex-col items-center gap-6 text-center">
           <CheckCircle size={72} className="text-green-400 drop-shadow-lg" />
           <div>
-            <p className="text-3xl font-bold text-white">Door is open</p>
+            <p className="text-3xl font-bold text-white">{result.message}</p>
             <p className="text-green-200 mt-2 text-lg">
               Welcome, {result.guest}
             </p>
@@ -88,7 +88,7 @@ export default function DoorPage() {
         <div className="flex flex-col items-center gap-6 text-center">
           <XCircle size={72} className="text-red-400 drop-shadow-lg" />
           <div>
-            <p className="text-2xl font-bold text-white">Access denied</p>
+            <p className="text-2xl font-bold text-white">Unable to open door</p>
             <p className="text-red-300 mt-2">{errorMsg}</p>
           </div>
           <button

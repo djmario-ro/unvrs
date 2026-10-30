@@ -127,6 +127,30 @@ Deploying WhatsApp later needs its own image/chart, internal Service, persistent
 linked-device session storage, and matching `WHATSAPP_API_TOKEN`/`API_TOKEN`
 Secrets. Do not use the friend's Coolify Compose stack for cluster deployment.
 
+### Home Assistant door control
+
+The backend reads `HA_TOKEN` directly from the separately managed
+`unvrs-staging/homeassistant-api` Secret. The token is never sent to the browser
+or stored in Git. `homeAssistant.url` and `homeAssistant.doorScripts` in backend
+chart values configure the HTTPS endpoint and the explicit mapping from each
+permanent room public ID to its Home Assistant script. Room 101 is mapped to
+`script.open_door` (the three-second door-opening script). Other rooms fail
+closed until their physical door script is configured.
+
+A valid room PIN must also be within the booking's check-in/check-out window.
+Times are stored in UTC and displayed in the property's timezone. A PIN for a
+booking starting tomorrow does not authorize entry today; update booking dates
+through the staff app when intentionally changing the access window. Invalid,
+unknown-room, and out-of-window attempts share the same public rejection text.
+
+After validation the backend calls the script's own service and waits for it
+to complete, with a 10-second timeout and no automatic retries. Only then does
+it record access/check-in and return "Door unlock triggered". Missing config,
+HTTP failures, redirects, and timeouts return 503 and record `door.open_failed`;
+they never mark the guest checked in or display a successful opening. The UI
+reports a triggered action rather than claiming a physical door sensor state.
+See [Home Assistant action API](https://contributors.home-assistant.io/core/internals/rest-api/#post-apiservicesdomainservice).
+
 ## CloudNativePG database
 
 The db chart now provisions `Database` and `DatabaseRole` resources, not a PostgreSQL StatefulSet or PVC. Install it in namespace `postgres` alongside the existing `postgres-geo` CNPG Cluster. Its generated basic-auth credential Secret `unvrs-staging-db-credentials` is provisioned separately; never commit passwords. The application has a dedicated non-superuser role `unvrs_staging` and database `unvrs_staging`. Backend credentials point at `postgres-geo-rw.postgres.svc.cluster.local`, using TLS. Deleting the Helm resources retains the SQL database and role; deliberate destruction is a separate operation. The shared cluster controls digest-pinned images, storage, replication, and failover.
