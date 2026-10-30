@@ -15,7 +15,19 @@ const operationColor: Record<string, string> = {
   "assignment.create": "bg-purple-100 text-purple-700",
   "assignment.delete": "bg-red-100 text-red-700",
   "assignment.pin_regenerated": "bg-yellow-100 text-yellow-700",
+  "assignment.update": "bg-blue-100 text-blue-700",
+  "assignment.pin_sent": "bg-purple-100 text-purple-700",
   "door.access": "bg-teal-100 text-teal-700",
+  "door.checkin": "bg-teal-100 text-teal-700",
+  "door.pin_rejected": "bg-red-100 text-red-700",
+  "auth.login": "bg-gray-100 text-gray-700",
+  "auth.login_failed": "bg-red-100 text-red-700",
+  "room.cleaned": "bg-cyan-100 text-cyan-700",
+  "room.image_added": "bg-blue-100 text-blue-700",
+  "room.image_deleted": "bg-red-100 text-red-700",
+  "user.create": "bg-green-100 text-green-700",
+  "user.update": "bg-blue-100 text-blue-700",
+  "user.delete": "bg-red-100 text-red-700",
 };
 
 export default function AuditPage() {
@@ -26,7 +38,7 @@ export default function AuditPage() {
   });
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Audit Log</h1>
         <p className="text-sm text-gray-500 mt-1">
@@ -44,11 +56,11 @@ export default function AuditPage() {
           <p>No audit entries yet.</p>
         </div>
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100">
             <thead className="bg-gray-50">
               <tr>
-                {["Time", "Operation", "Message"].map((h) => (
+                {["Time", "Who", "Operation", "Message"].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide"
@@ -63,6 +75,10 @@ export default function AuditPage() {
                 <tr key={e.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-400 text-sm whitespace-nowrap">
                     {format(new Date(e.created_at), "dd MMM yyyy HH:mm:ss")}
+                  </td>
+                  <td className="px-4 py-3 text-sm whitespace-nowrap">
+                    <span className="text-gray-700">{e.actor ?? "—"}</span>
+                    {e.ip && <span className="block text-xs text-gray-400 font-mono">{e.ip}</span>}
                   </td>
                   <td className="px-4 py-3">
                     <span

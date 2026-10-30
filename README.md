@@ -1,116 +1,85 @@
-# Guesthouse Management System
+# UNVRS — Guesthouse Management
 
-A single-tenant internal management system for a guesthouse.
+A single-tenant guesthouse application with a React frontend, FastAPI backend,
+and PostgreSQL database.
 
-## Architecture
+## Application
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Podman / Docker                                         │
-│                                                          │
-│  ┌──────────────┐    ┌──────────────┐   ┌────────────┐  │
-│  │  Frontend    │───▶│   Backend    │──▶│ PostgreSQL │  │
-│  │  React/Nginx │    │   FastAPI    │   │  (port 5432│  │
-│  │  (port 80)   │    │  (port 8000) │   └────────────┘  │
-│  └──────────────┘    └──────────────┘                    │
-└──────────────────────────────────────────────────────────┘
-```
+- Staff login with admin and front-desk roles
+- Room-status dashboard, reservation calendar, and booking wizard
+- Guests, rooms and photos, repeat stays, and booking overlap checks
+- Permanent room QR links, stay-specific PINs, and check-in on first door access
+- Audit history and admin user management
+- Optional WhatsApp/SMS PIN delivery (mocked until providers are configured)
 
-## Features
-
-### Admin panel (`/admin`)
-- **Guests** – full CRUD (name, email, phone, address, notes)
-- **Rooms** – full CRUD + QR code generation per room
-- **Assignments** – link guests to rooms; PIN is auto-generated on assignment
-  - Each guest/room pair gets a unique 6-digit PIN
-  - PINs can be regenerated at any time
-  - Optional check-in / check-out date windows
-- **Audit log** – every create/update/delete/door-access is recorded
-
-### Door client (`/door/:roomId`)
-- Opened by scanning the QR code posted at the room door
-- Displays a numeric keypad; guest enters their 6-digit PIN
-- FastAPI validates the PIN and issues an **httponly session cookie**
-- On success shows "Door is open" with the guest name
-- Auto-resets after 10 seconds
-
-## Data model
-
-```
-guests
-  id · firstname · lastname · email · phone · address · notes
-
-rooms
-  id · name · description
-
-guest_rooms            ← one row per guest↔room link
-  id · guest_id · room_id · pin · check_in · check_out
-
-tokens                 ← door session tokens
-  id · assignment_id · token · valid_until · revoked_at
-
-audit
-  id · operation · message · created_at
-```
-
-## Quick start
-
-```bash
-# 1. Clone
-git clone <repo-url> && cd unvrs
-
-# 2. Copy env and tweak secrets
-cp .env .env.local   # edit .env, keep .env out of git
-
-# 3. Start everything
-podman-compose up --build
-
-# OR with docker-compose:
-docker compose up --build
-```
-
-- Admin panel → http://localhost/admin
-- API docs    → http://localhost:8000/docs
-- Door client → http://localhost/door/<room_id>  (or scan the QR)
-
-## Development (no containers)
-
-**Backend**
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# Start a local postgres first, then:
-DATABASE_URL=postgresql+asyncpg://... uvicorn app.main:app --reload
-```
-
-**Frontend**
-```bash
-cd frontend
-npm install
-npm run dev        # proxies /api → localhost:8000
-```
-
-## API overview
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET/POST | `/api/v1/guests` | List / create guests |
-| GET/PATCH/DELETE | `/api/v1/guests/{id}` | Read / update / delete |
-| GET/POST | `/api/v1/rooms` | List / create rooms |
-| GET | `/api/v1/rooms/{id}/qr` | Download QR PNG |
-| GET/POST | `/api/v1/assignments` | List / create assignments |
-| POST | `/api/v1/assignments/{id}/regenerate-pin` | New PIN |
-| POST | `/api/v1/door/validate-pin` | Validate PIN, set cookie |
-| POST | `/api/v1/door/logout` | Clear cookie |
-| GET | `/api/v1/audit` | Audit log |
-
-Full interactive docs at `/docs` (Swagger UI) or `/redoc`.
+Staff enter at `/login` and work under `/app`. Guests scan a room QR to open
+`/door/<room-public-id>`. Existing `/admin` links redirect to the staff app.
+Interactive API documentation is available at the backend's `/docs` endpoint.
 
 ## Kubernetes staging
 
-The Helm deployment uses three independent charts in `charts/db`,
-`charts/backend`, and `charts/frontend`. See [deployment instructions](charts/README.md)
-for image distribution, required secrets, storage, and repeat deployments.
+Staging: https://unvrs-staging.cloud.retreat480.com/login (HTTP Basic login,
+followed by application staff login).
 
-Staging: https://unvrs-staging.cloud.retreat480.com/admin (HTTP Basic login required).
+The existing main-branch delivery system is retained: multi-architecture images
+and digest-locked OCI charts in Harbor, explicitly promoted through Argo CD.
+The three charts are `charts/db`, `charts/backend`, and `charts/frontend`.
+The database chart manages a dedicated database/role on the shared CloudNativePG
+cluster, rather than running a separate PostgreSQL instance.
+
+See [deployment instructions](charts/README.md) for credentials, the one-time
+v1 schema reset, automatic migration Jobs, promotion, and messaging deployment.
+The friend's Coolify Compose deployment and separate CI workflow are not used.
+
+## Local containers
+
+```sh
+cp .env.example .env
+# Edit .env: set a strong SECRET_KEY and ADMIN_PASSWORD.
+podman-compose up -d db
+podman-compose run --rm backend alembic upgrade head
+podman-compose up --build -d
+```
+
+Frontend: http://localhost:8080/login. API: http://localhost:8000/docs.
+For Docker, use `docker compose -f podman-compose.yml` in place of
+`podman-compose`. Apply migrations again after application schema updates.
+An existing v1 local database also needs a deliberate reset before running the
+initial Alembic migration; Kubernetes reset instructions target staging only.
+
+## Development without containers
+
+Start a disposable local PostgreSQL database, then:
+
+```sh
+cd backend
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+# Set DATABASE_URL, SECRET_KEY, and ADMIN_PASSWORD in the environment.
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+In another terminal, run `npm ci && npm run dev` from `frontend/`.
+Set `FRONTEND_ORIGIN=http://localhost:5173` for this setup.
+
+## Validation
+
+```sh
+# Backend: TEST_DATABASE_URL MUST point at a disposable database.
+# The test fixture drops and recreates its public schema.
+cd backend
+TEST_DATABASE_URL=postgresql+asyncpg://USER:PASS@localhost:5433/guesthouse_test python -m pytest -q
+
+# Frontend (from frontend/)
+npm ci
+npm run lint
+npm run build
+
+# Charts (from repository root)
+helm lint charts/db charts/backend charts/frontend
+```
+
+The backend tests build their schema from Alembic migrations and exercise staff
+roles, bookings, door access, photos, validation, sessions, and rate limits.
