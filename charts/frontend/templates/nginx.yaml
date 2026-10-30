@@ -18,7 +18,9 @@ data:
       auth_basic_user_file /etc/nginx/auth/htpasswd;
       {{- end }}
       location = /healthz {
+        {{- if .Values.auth.enabled }}
         auth_basic off;
+        {{- end }}
         access_log off;
         return 200 "ok";
       }
