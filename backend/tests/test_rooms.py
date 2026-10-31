@@ -83,7 +83,7 @@ async def test_thumbnail_query_downscales(admin, room):
 async def test_room_homeassistant_entity_is_admin_only_and_validated(admin, frontdesk, room):
     url = f"/api/v1/rooms/{room['id']}"
     assert (await frontdesk.patch(url, json={"homeassistant_entity_id": "lock.other_door"})).status_code == 403
-    for invalid in ["switch.anything", "../script/open_door", "lock.one,lock.two", "lock."]:
+    for invalid in ["switch.anything", "../script/open_door", "lock.one,lock.two", "lock.", "script.turn_on", "script.reload"]:
         assert (await admin.patch(url, json={"homeassistant_entity_id": invalid})).status_code == 422
     for entity in ["lock.room_101", "script.open_door", None]:
         response = await admin.patch(url, json={"homeassistant_entity_id": entity})

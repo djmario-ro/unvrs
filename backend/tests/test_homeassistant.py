@@ -89,3 +89,12 @@ async def test_lock_entity_is_supplied_as_service_parameter(ha, monkeypatch, ent
         return httpx.Response(200, json=[])
     transport(monkeypatch, handler)
     await open_door(entity)
+
+
+@pytest.mark.parametrize("entity", ["script.turn_on", "script.turn_off", "script.toggle", "script.reload"])
+async def test_script_management_services_cannot_be_used_as_door_entities(ha, monkeypatch, entity):
+    def handler(request):
+        pytest.fail("Management services must not be called as an actuator")
+    transport(monkeypatch, handler)
+    with pytest.raises(DoorUnavailable):
+        await open_door(entity)

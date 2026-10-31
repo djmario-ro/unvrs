@@ -23,6 +23,10 @@ async def open_door(entity_id: str | None) -> None:
 
     # Calling the script's own service waits for completion (including its
     # three-second relay pulse). Do not retry: a timeout can mean it already ran.
+    # Reserved script services can target all scripts when called without a
+    # target; they are not individual actuator entities.
+    if entity_id in {"script.turn_on", "script.turn_off", "script.toggle", "script.reload"}:
+        raise DoorUnavailable("Door control unavailable. Please contact reception.")
     if entity_id.startswith("lock."):
         path, payload = "lock/unlock", {"entity_id": entity_id}
     else:
