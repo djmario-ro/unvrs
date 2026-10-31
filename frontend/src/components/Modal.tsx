@@ -46,13 +46,13 @@ export default function Modal({ open, onClose, title, children, size = "md" }: P
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          "relative bg-white rounded-2xl shadow-xl w-full outline-none",
+          "relative bg-white rounded-2xl shadow-xl w-full outline-none max-h-[calc(100dvh-2rem)] flex flex-col",
           size === "sm" && "max-w-sm",
           size === "md" && "max-w-lg",
           size === "lg" && "max-w-2xl"
         )}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 id={titleId} className="text-lg font-semibold text-gray-900">
             {title}
           </h2>
@@ -64,7 +64,7 @@ export default function Modal({ open, onClose, title, children, size = "md" }: P
             <X size={18} />
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-6 py-5 min-h-0 overflow-y-auto">{children}</div>
       </div>
     </div>
   );
