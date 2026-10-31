@@ -69,6 +69,7 @@ const AMENITIES = [
 
 type FormData = {
   name: string;
+  homeassistant_entity_id: string;
   room_type: string;
   size_sqm: string;
   max_occupancy: string;
@@ -83,6 +84,7 @@ type FormData = {
 
 const empty: FormData = {
   name: "",
+  homeassistant_entity_id: "",
   room_type: "",
   size_sqm: "",
   max_occupancy: "",
@@ -97,6 +99,7 @@ const empty: FormData = {
 
 const toForm = (r: Room): FormData => ({
   name: r.name,
+  homeassistant_entity_id: r.homeassistant_entity_id ?? "",
   room_type: r.room_type ?? "",
   size_sqm: r.size_sqm?.toString() ?? "",
   max_occupancy: r.max_occupancy?.toString() ?? "",
@@ -147,7 +150,7 @@ export default function RoomsPage() {
   // Duplicate: prefill the create form from an existing room (new name, no photos).
   const openDuplicate = (r: Room) => {
     setEditing(null);
-    setForm({ ...toForm(r), name: `${r.name} (copy)` });
+    setForm({ ...toForm(r), name: `${r.name} (copy)`, homeassistant_entity_id: "" });
     setImages([]);
     setModalOpen(true);
   };
@@ -169,6 +172,7 @@ export default function RoomsPage() {
 
   const payload = (): RoomInput => ({
     name: form.name,
+    homeassistant_entity_id: form.homeassistant_entity_id.trim() || null,
     description: form.description || null,
     room_type: form.room_type || null,
     size_sqm: num(form.size_sqm),
@@ -647,6 +651,13 @@ export default function RoomsPage() {
               Smoking allowed
             </label>
 
+            <div className="sm:col-span-2">
+              <label className="label" htmlFor="room-ha-entity">Home Assistant entity ID</label>
+              <input id="room-ha-entity" className="input" value={form.homeassistant_entity_id}
+                onChange={(e) => setForm((f) => ({ ...f, homeassistant_entity_id: e.target.value }))}
+                placeholder="lock.room_101" autoCapitalize="none" spellCheck={false} />
+              <p className="text-xs text-gray-400 mt-1">The lock for this room, for example lock.room_101. Existing door scripts such as script.open_door are also supported. Blank disables door control.</p>
+            </div>
             <div>
               <label className="label">Description</label>
               <textarea

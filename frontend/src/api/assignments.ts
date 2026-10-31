@@ -24,3 +24,15 @@ export const deleteAssignment = (id: number) => api.delete(`/assignments/${id}`)
 
 export const regeneratePin = (id: number) =>
   api.post<Assignment>(`/assignments/${id}/regenerate-pin`).then((r) => r.data);
+
+export interface GuestDevice {
+  id: number;
+  device_name: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+  active: boolean;
+}
+export const getGuestDevices = (id: number) => api.get<GuestDevice[]>(`/assignments/${id}/devices`).then((r) => r.data);
+export const revokeGuestDevice = (id: number, device: number) => api.post(`/assignments/${id}/devices/${device}/revoke`, {});
+export const revokeGuestAccess = (id: number) => api.post(`/assignments/${id}/revoke-access`, {});

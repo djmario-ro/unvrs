@@ -31,3 +31,10 @@
     @apply bg-white rounded-xl border border-gray-200 shadow-sm;
   }
 }
+
+/* Native range keeps keyboard/screen-reader support; only a completed gesture opens. */
+.door-slider { appearance: none; -webkit-appearance: none; height: 64px; margin: 0; padding: 4px; background: transparent; border-radius: 999px; touch-action: pan-y; }
+.door-slider::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 56px; height: 56px; border-radius: 50%; background: #6ee7b7; border: 5px solid #34d399; cursor: grab; }
+.door-slider::-moz-range-thumb { width: 46px; height: 46px; border-radius: 50%; background: #6ee7b7; border: 5px solid #34d399; cursor: grab; }
+.door-slider:focus-visible { outline: 2px solid #6ee7b7; outline-offset: 4px; }
+.door-slider:disabled { opacity: .4; }

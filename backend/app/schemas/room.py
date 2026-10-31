@@ -18,6 +18,7 @@ class RoomImageRead(BaseModel):
 class RoomBase(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str | None = Field(None, max_length=1000)
+    homeassistant_entity_id: str | None = Field(None, max_length=255, pattern=r"^(lock|script)\.[a-z0-9_]+$")
     room_type: str | None = Field(None, max_length=50)
     size_sqm: int | None = Field(None, ge=0)
     max_occupancy: int | None = Field(None, ge=0)
@@ -36,6 +37,7 @@ class RoomCreate(RoomBase):
 class RoomUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=1000)
+    homeassistant_entity_id: str | None = Field(None, max_length=255, pattern=r"^(lock|script)\.[a-z0-9_]+$")
     room_type: str | None = Field(None, max_length=50)
     size_sqm: int | None = Field(None, ge=0)
     max_occupancy: int | None = Field(None, ge=0)

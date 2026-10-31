@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     # X-Forwarded-For from the right, skipping these, to find the client IP.
     trusted_proxies: str = "private"
 
-    # Backend-only Home Assistant integration. Map permanent room public IDs
-    # to explicit door scripts; never accept the target from a guest request.
+    # Backend-only Home Assistant integration. Actuators are stored per room.
+    # Legacy script mapping is read only by the upgrade migration.
     ha_url: str = ""
     ha_token: str = ""
     ha_door_scripts: dict[str, Annotated[str, Field(pattern=r"^script\.[a-z0-9_]+$")]] = {}

@@ -12,7 +12,7 @@ frontendOrigin: https://unvrs-staging.cloud.retreat480.com
 homeAssistant:
   existingSecret: homeassistant-api
   url: https://home161.cloud.retreat480.com
-  # Map permanent room public IDs to scripts after confirming the physical door.
+  # Legacy mapping: copied to the per-room field by the upgrade migration only.
   doorScripts:
     0ew0TKQs3_bad4X9: script.open_door
 imagePullSecrets:

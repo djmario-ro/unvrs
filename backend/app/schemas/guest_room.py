@@ -30,6 +30,7 @@ class GuestRoomRead(BaseModel):
     check_in: datetime | None
     check_out: datetime | None
     checked_in_at: datetime | None = None
+    access_revoked_at: datetime | None = None
     created_at: datetime
     guest: GuestRead | None = None
     room: RoomRead | None = None

@@ -26,3 +26,5 @@ spec:
           resources: {{ .Values.resources | toJson }}
           envFrom:
             - secretRef: {name: {{ .Values.existingSecret }}}
+          env:
+            - {name: HA_DOOR_SCRIPTS, value: {{ .Values.homeAssistant.doorScripts | toJson | quote }}}
