@@ -129,29 +129,48 @@ Deploying WhatsApp later needs its own image/chart, internal Service, persistent
 linked-device session storage, and matching `WHATSAPP_API_TOKEN`/`API_TOKEN`
 Secrets. Do not use the friend's Coolify Compose stack for cluster deployment.
 
-### Home Assistant door control
+### Guest keys and Home Assistant doors
 
-The backend reads `HA_TOKEN` directly from the separately managed
-`unvrs-staging/homeassistant-api` Secret. The token is never sent to the browser
-or stored in Git. `homeAssistant.url` and `homeAssistant.doorScripts` in backend
-chart values configure the HTTPS endpoint and the explicit mapping from each
-permanent room public ID to its Home Assistant script. Room 101 is mapped to
-`script.open_door` (the three-second door-opening script). Other rooms fail
-closed until their physical door script is configured.
+Set **Home Assistant entity ID** in the admin room editor: `lock.room_101`
+uses `/api/services/lock/unlock` with `{"entity_id":"lock.room_101"}`.
+`script.open_door` remains supported for an existing timed opening script.
+Blank disables opening for that room. The backend selects the entity from the
+room record; guest requests cannot supply an actuator. Renaming a room does not
+change its physical target. Duplicating a room clears the copied actuator field.
 
-A valid room PIN must also be within the booking's check-in/check-out window.
-Times are stored in UTC and displayed in the property's timezone. A PIN for a
-booking starting tomorrow does not authorize entry today; update booking dates
-through the staff app when intentionally changing the access window. Invalid,
-unknown-room, and out-of-window attempts share the same public rejection text.
+The token stays in `unvrs-staging/homeassistant-api`, key `HA_TOKEN`, and is
+injected only into the backend. The browser never receives it. The schema
+upgrade copies the old `homeAssistant.doorScripts` chart mapping into matching
+room records once. The migration Job receives that legacy mapping; running
+backends read the editable database field, not the chart map. No reset is needed.
 
-After validation the backend calls the script's own service and waits for it
-to complete, with a 10-second timeout and no automatic retries. Only then does
-it record access/check-in and return "Door unlock triggered". Missing config,
-HTTP failures, redirects, and timeouts return 503 and record `door.open_failed`;
-they never mark the guest checked in or display a successful opening. The UI
-reports a triggered action rather than claiming a physical door sensor state.
-See [Home Assistant action API](https://contributors.home-assistant.io/core/internals/rest-api/#post-apiservicesdomainservice).
+A guest scans the same permanent room QR and enters the reusable stay PIN on
+each phone. This creates a distinct random, HttpOnly, Secure, SameSite=Strict
+cookie scoped to that room's door API. Only its SHA-256 hash is stored in the
+database. PIN activation never opens a door or marks check-in. Reloading the
+room page restores the slider without entering the PIN again.
+
+Each completed slide is a JSON POST. It rechecks device revocation/expiry, the
+stay's current dates, room binding, and key version before calling Home
+Assistant. Origin validation and Strict cookies protect against cross-site
+requests. GETs, partial drags, track taps, invalid/revoked keys, and expired stays
+never open hardware. Keyboard slider completion is supported. Successful
+opening marks check-in; failures return 503 without marking arrival or showing
+success. There are no automatic retries after ambiguous actuator failures.
+
+The cookie expires at the known checkout time (30 days for open-ended bookings).
+If checkout is extended beyond a previously issued cookie's expiry, the guest
+can activate again with the stay PIN. Phones for different rooms have separate
+cookie paths; guest sessions do not authorize staff APIs.
+
+In **Bookings → Guest devices and access**, staff can revoke one phone, disable
+all access for a stay, or replace the PIN. Disabling access blocks both existing
+sessions and PIN activation until a replacement PIN is generated. Replacing a
+PIN or reassigning a room invalidates previously activated devices; deleting a
+booking removes its device keys. Date changes take effect on the next request.
+A single-device revocation does not prevent reactivation by someone who still
+knows the shared PIN; replace the PIN to stop that too. Guests can also select
+**Forget this device**, revoking that phone's key on the server.
 
 ## CloudNativePG database
 

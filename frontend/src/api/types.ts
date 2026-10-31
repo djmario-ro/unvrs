@@ -20,6 +20,7 @@ export interface RoomImage {
 export interface Room {
   id: number;
   public_id: string;
+  homeassistant_entity_id: string | null;
   name: string;
   description: string | null;
   room_type: string | null;
@@ -48,6 +49,7 @@ export interface Assignment {
   check_in: string | null;
   check_out: string | null;
   checked_in_at: string | null;
+  access_revoked_at: string | null;
   created_at: string;
   guest: Guest | null;
   room: Room | null;

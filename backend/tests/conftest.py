@@ -149,7 +149,7 @@ async def room(admin):
 
 async def make_room(client):
     r = await client.post(
-        "/api/v1/rooms", json={"name": f"Room {datetime.now().timestamp()}"}
+        "/api/v1/rooms", json={"name": f"Room {datetime.now().timestamp()}", "homeassistant_entity_id": "lock.test_room"}
     )
     assert r.status_code == 201, r.text
     return r.json()

@@ -48,7 +48,6 @@ spec:
                   key: HA_TOKEN
                   optional: true
             - {name: HA_URL, value: {{ .Values.homeAssistant.url | quote }}}
-            - {name: HA_DOOR_SCRIPTS, value: {{ .Values.homeAssistant.doorScripts | toJson | quote }}}
             - {name: FRONTEND_ORIGIN, value: {{ .Values.frontendOrigin | quote }}}
             - {name: COOKIE_SECURE, value: "true"}
             - {name: DEBUG, value: "false"}

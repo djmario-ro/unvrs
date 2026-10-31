@@ -22,6 +22,9 @@ import {
   createAssignment,
   deleteAssignment,
   regeneratePin,
+  getGuestDevices,
+  revokeGuestDevice,
+  revokeGuestAccess,
 } from "../../api/assignments";
 import { sendPin } from "../../api/messaging";
 import { getGuests } from "../../api/guests";
@@ -55,6 +58,27 @@ export default function AssignmentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Assignment | null>(null);
   const [regenTarget, setRegenTarget] = useState<Assignment | null>(null);
   const [visiblePins, setVisiblePins] = useState<Set<number>>(new Set());
+  const [deviceTarget, setDeviceTarget] = useState<Assignment | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<Assignment | null>(null);
+  const devicesQuery = useQuery({
+    queryKey: ["guestDevices", deviceTarget?.id],
+    queryFn: () => getGuestDevices(deviceTarget!.id),
+    enabled: !!deviceTarget,
+  });
+  const revokeDeviceMutation = useMutation({
+    mutationFn: (device: number) => revokeGuestDevice(deviceTarget!.id, device),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["guestDevices"] }); toast.success("Device revoked"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const revokeAccessMutation = useMutation({
+    mutationFn: () => revokeGuestAccess(revokeTarget!.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["guestDevices"] });
+      invalidateBookingViews(qc); setRevokeTarget(null); setDeviceTarget(null);
+      toast.success("Guest access disabled for this stay");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const [sendTarget, setSendTarget] = useState<Assignment | null>(null);
   const [channels, setChannels] = useState<Channel[]>(["sms", "whatsapp"]);
   const [view, setView] = useViewMode("bookings");
@@ -105,7 +129,8 @@ export default function AssignmentsPage() {
     onSuccess: () => {
       setRegenTarget(null);
       invalidateBookingViews(qc);
-      toast.success("PIN regenerated");
+      qc.invalidateQueries({ queryKey: ["guestDevices"] });
+      toast.success("New PIN created — previous devices revoked");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -169,6 +194,11 @@ export default function AssignmentsPage() {
 
   const rowActions = (a: Assignment) => (
     <div className="flex items-center justify-end gap-1">
+      <button className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50"
+        onClick={() => setDeviceTarget(a)} title="Guest devices and access">
+        <Smartphone size={15} />
+      </button>
+      {a.access_revoked_at && <span className="text-xs text-red-600 mr-2">Access disabled</span>}
       <button
         className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
         onClick={() => {
@@ -454,12 +484,37 @@ export default function AssignmentsPage() {
         </div>
       </Modal>
 
+      <Modal open={!!deviceTarget} onClose={() => setDeviceTarget(null)} title={`Guest devices — ${deviceTarget?.room?.name ?? "room"}`}>
+        <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+          <p className="text-sm text-gray-500">Each phone has its own guest key. Revoking a device removes its key; someone who still knows the stay PIN can activate again. Replace the PIN to block that too.</p>
+          {devicesQuery.isLoading ? <Spinner /> : devicesQuery.isError ? <ErrorState what="guest devices" error={devicesQuery.error} onRetry={() => devicesQuery.refetch()} /> : devicesQuery.data?.length ? (
+            <ul className="divide-y divide-gray-100">
+              {devicesQuery.data.map((device) => <li key={device.id} className="py-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium break-words">{device.device_name}</p>
+                  <p className="text-xs text-gray-500 mt-1">{device.active ? "Active" : "Expired or revoked"} · Activated {format(new Date(device.created_at), "dd MMM HH:mm")}</p>
+                  <p className="text-xs text-gray-400">Last unlock: {device.last_used_at ? format(new Date(device.last_used_at), "dd MMM HH:mm") : "Not yet used"}</p>
+                </div>
+                {device.active && <button className="btn-secondary text-xs" disabled={revokeDeviceMutation.isPending}
+                  onClick={() => revokeDeviceMutation.mutate(device.id)}>Revoke device</button>}
+              </li>)}
+            </ul>
+          ) : <p className="text-sm text-gray-400">No phones have activated this stay PIN yet.</p>}
+          <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-100">
+            <button className="btn-secondary" onClick={() => { setRegenTarget(deviceTarget); setDeviceTarget(null); }}>Replace PIN and revoke devices</button>
+            <button className="btn-secondary text-red-600" onClick={() => setRevokeTarget(deviceTarget)}>Disable guest access</button>
+          </div>
+        </div>
+      </Modal>
+      <ConfirmDialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)} onConfirm={() => revokeAccessMutation.mutate()}
+        title="Disable guest access?" message="All device keys and the current PIN will stop working for this stay. Create a replacement PIN to re-enable access."
+        loading={revokeAccessMutation.isPending} confirmLabel="Disable access" />
       <ConfirmDialog
         open={!!regenTarget}
         onClose={() => setRegenTarget(null)}
         onConfirm={() => regenTarget && regenMutation.mutate(regenTarget.id)}
         title="Regenerate PIN?"
-        message="The current PIN stops working immediately. If it was already sent to the guest, you will need to send the new one."
+        message="The current PIN and all activated devices stop working immediately. A new PIN re-enables guest access for the stay. Send the new PIN to the guests so each phone can activate again."
         confirmLabel="Regenerate"
         loadingLabel="Regenerating…"
         loading={regenMutation.isPending}

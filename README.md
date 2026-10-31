@@ -8,7 +8,8 @@ and PostgreSQL database.
 - Staff login with admin and front-desk roles
 - Room-status dashboard, reservation calendar, and booking wizard
 - Guests, rooms and photos, repeat stays, and booking overlap checks
-- Permanent room QR links, stay-specific PINs, and check-in on first door access
+- Permanent room QR links, reusable stay PINs for device activation, and slide-to-unlock
+- Revocable per-phone guest keys, per-room Home Assistant entities, and check-in on first successful unlock
 - Audit history and admin user management
 - Optional WhatsApp/SMS PIN delivery (mocked until providers are configured)
 

@@ -22,6 +22,7 @@ class Room(Base):
     )
     name: Mapped[str] = mapped_column(String(100), unique=True)
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    homeassistant_entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Booking.com-style details
     room_type: Mapped[str | None] = mapped_column(String(50), nullable=True)

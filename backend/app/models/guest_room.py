@@ -30,13 +30,15 @@ class GuestRoom(Base):
     guest_id: Mapped[int] = mapped_column(ForeignKey("guests.id", ondelete="CASCADE"))
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id", ondelete="CASCADE"))
     pin: Mapped[str] = mapped_column(String(10))
+    key_version: Mapped[int] = mapped_column(default=0, server_default="0")
+    access_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     check_in: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     check_out: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # First time the guest entered their PIN at the door — marks actual check-in.
+    # First successful door slide — PIN activation alone is not check-in.
     # Null means the reservation is still "booked" (guest hasn't arrived).
     checked_in_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

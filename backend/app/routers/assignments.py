@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.models.guest_device import GuestDevice
 from app.models.guest import Guest
 from app.models.guest_room import GuestRoom
 from app.models.message_log import MessageLog
@@ -206,10 +207,14 @@ async def update_assignment(
                 status_code=409, detail="Room is already booked for those dates"
             )
 
+    if room_id != assignment.room_id:
+        assignment.key_version += 1
+        assignment.pin = await _unique_pin(db, room_id)
     for field, value in data.items():
         setattr(assignment, field, value)
     await audit_log.log(db, "assignment.update", f"Updated booking id={assignment_id}")
     await db.flush()
+    await db.commit()
     return await _load_assignment(db, assignment_id)
 
 
@@ -220,6 +225,7 @@ async def delete_assignment(assignment_id: int, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=404, detail="Assignment not found")
     await audit_log.log(db, "assignment.delete", f"Removed assignment id={assignment_id}")
     await db.delete(assignment)
+    await db.commit()
 
 
 @router.post("/{assignment_id}/regenerate-pin", response_model=GuestRoomRead)
@@ -229,9 +235,12 @@ async def regenerate_pin(assignment_id: int, db: AsyncSession = Depends(get_db))
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
     assignment.pin = await _unique_pin(db, assignment.room_id)
+    assignment.key_version += 1
+    assignment.access_revoked_at = None
     await audit_log.log(
         db, "assignment.pin_regenerated", f"PIN regenerated for assignment id={assignment_id}"
     )
+    await db.commit()
     return await _load_assignment(db, assignment_id)
 
 
@@ -292,3 +301,39 @@ async def send_pin(
     for entry in logs:
         await db.refresh(entry)
     return SendPinResult(results=logs)
+
+
+@router.get("/{assignment_id}/devices")
+async def list_devices(assignment_id: int, db: AsyncSession = Depends(get_db)):
+    stay = await db.get(GuestRoom, assignment_id)
+    if not stay:
+        raise HTTPException(404, "Assignment not found")
+    result = await db.execute(select(GuestDevice).where(GuestDevice.assignment_id == assignment_id).order_by(GuestDevice.created_at.desc()))
+    now = datetime.now(timezone.utc)
+    return [{"id": d.id, "device_name": d.device_name, "created_at": d.created_at,
+             "last_used_at": d.last_used_at, "expires_at": d.expires_at,
+             "active": not d.revoked_at and not stay.access_revoked_at and d.key_version == stay.key_version
+             and d.room_id == stay.room_id and now < d.expires_at
+             and (stay.check_in is None or stay.check_in <= now) and (stay.check_out is None or now < stay.check_out)}
+            for d in result.scalars()]
+
+
+@router.post("/{assignment_id}/devices/{device_id}/revoke", status_code=204)
+async def revoke_device(assignment_id: int, device_id: int, db: AsyncSession = Depends(get_db)):
+    device = await db.get(GuestDevice, device_id)
+    if not device or device.assignment_id != assignment_id:
+        raise HTTPException(404, "Device not found")
+    device.revoked_at = datetime.now(timezone.utc)
+    await audit_log.log(db, "door.device_revoked", f"Device id={device_id} revoked for booking id={assignment_id}")
+    await db.commit()
+
+
+@router.post("/{assignment_id}/revoke-access", status_code=204)
+async def revoke_access(assignment_id: int, db: AsyncSession = Depends(get_db)):
+    stay = await db.get(GuestRoom, assignment_id)
+    if not stay:
+        raise HTTPException(404, "Assignment not found")
+    stay.access_revoked_at = datetime.now(timezone.utc)
+    stay.key_version += 1
+    await audit_log.log(db, "door.stay_revoked", f"Guest access disabled for booking id={assignment_id}")
+    await db.commit()

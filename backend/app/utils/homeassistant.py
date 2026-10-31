@@ -1,5 +1,6 @@
-"""Run the explicitly configured Home Assistant door script after PIN validation."""
+"""Run the room's explicit Home Assistant lock or script after guest authorization."""
 import logging
+import re
 
 import httpx
 
@@ -12,21 +13,30 @@ class DoorUnavailable(Exception):
     """No action was confirmed; the guest must not see a success screen."""
 
 
-async def open_door(room_public_id: str) -> None:
-    script = settings.ha_door_scripts.get(room_public_id)
-    if not settings.ha_url.startswith("https://") or not settings.ha_token or not script:
-        logger.warning("Door action is not configured for room public_id=%s", room_public_id)
+async def open_door(entity_id: str | None) -> None:
+    if not settings.ha_url.startswith("https://") or not settings.ha_token or not entity_id:
+        logger.warning("Door action is not configured")
+        raise DoorUnavailable("Door control unavailable. Please contact reception.")
+
+    if not re.fullmatch(r"(lock|script)\.[a-z0-9_]+", entity_id):
         raise DoorUnavailable("Door control unavailable. Please contact reception.")
 
     # Calling the script's own service waits for completion (including its
     # three-second relay pulse). Do not retry: a timeout can mean it already ran.
-    service = script.removeprefix("script.")
+    # Reserved script services can target all scripts when called without a
+    # target; they are not individual actuator entities.
+    if entity_id in {"script.turn_on", "script.turn_off", "script.toggle", "script.reload"}:
+        raise DoorUnavailable("Door control unavailable. Please contact reception.")
+    if entity_id.startswith("lock."):
+        path, payload = "lock/unlock", {"entity_id": entity_id}
+    else:
+        path, payload = f"script/{entity_id.removeprefix('script.')}", {}
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.post(
-                f"{settings.ha_url.rstrip('/')}/api/services/script/{service}",
+                f"{settings.ha_url.rstrip('/')}/api/services/{path}",
                 headers={"Authorization": f"Bearer {settings.ha_token}"},
-                json={},
+                json=payload,
             )
             response.raise_for_status()
     except httpx.HTTPError as exc:
