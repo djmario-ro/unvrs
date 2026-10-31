@@ -135,6 +135,7 @@ async def unlock(public_id: str, request: Request, response: Response, db: Async
         await audit_log.log(db, "door.checkin", f"Guest checked in: guest id={stay.guest_id} room id={stay.room_id}")
     device.last_used_at = now
     await audit_log.log(db, "door.access", f"Door action completed: room id={stay.room_id} device id={device.id}")
+    await db.commit()
     response.headers["Cache-Control"] = "no-store"
     return {"message": "Door unlock triggered", "guest": f"{stay.guest.firstname} {stay.guest.lastname}", "room": stay.room.name}
 
@@ -150,4 +151,5 @@ async def logout(public_id: str, request: Request, response: Response, db: Async
         device = result.scalar_one_or_none()
         if device:
             device.revoked_at = datetime.now(timezone.utc)
+    await db.commit()
     response.delete_cookie(COOKIE, path=cookie_path(public_id), secure=settings.cookie_secure, httponly=True, samesite="strict")

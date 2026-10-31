@@ -214,6 +214,7 @@ async def update_assignment(
         setattr(assignment, field, value)
     await audit_log.log(db, "assignment.update", f"Updated booking id={assignment_id}")
     await db.flush()
+    await db.commit()
     return await _load_assignment(db, assignment_id)
 
 
@@ -224,6 +225,7 @@ async def delete_assignment(assignment_id: int, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=404, detail="Assignment not found")
     await audit_log.log(db, "assignment.delete", f"Removed assignment id={assignment_id}")
     await db.delete(assignment)
+    await db.commit()
 
 
 @router.post("/{assignment_id}/regenerate-pin", response_model=GuestRoomRead)
@@ -238,6 +240,7 @@ async def regenerate_pin(assignment_id: int, db: AsyncSession = Depends(get_db))
     await audit_log.log(
         db, "assignment.pin_regenerated", f"PIN regenerated for assignment id={assignment_id}"
     )
+    await db.commit()
     return await _load_assignment(db, assignment_id)
 
 
@@ -322,6 +325,7 @@ async def revoke_device(assignment_id: int, device_id: int, db: AsyncSession = D
         raise HTTPException(404, "Device not found")
     device.revoked_at = datetime.now(timezone.utc)
     await audit_log.log(db, "door.device_revoked", f"Device id={device_id} revoked for booking id={assignment_id}")
+    await db.commit()
 
 
 @router.post("/{assignment_id}/revoke-access", status_code=204)
@@ -332,3 +336,4 @@ async def revoke_access(assignment_id: int, db: AsyncSession = Depends(get_db)):
     stay.access_revoked_at = datetime.now(timezone.utc)
     stay.key_version += 1
     await audit_log.log(db, "door.stay_revoked", f"Guest access disabled for booking id={assignment_id}")
+    await db.commit()
