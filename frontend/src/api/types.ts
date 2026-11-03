@@ -71,9 +71,20 @@ export interface DoorAccessResult {
   room: string;
 }
 
-export type Role = "admin" | "frontdesk";
+export type Role =
+  "owner" | "administrator" | "frontdesk" | "housekeeping" | "maintenance";
+
+export interface PropertyAccess {
+  id: number;
+  name: string;
+  slug: string;
+  roles: Role[];
+}
 
 export interface User {
+  roles: Role[];
+  property_id: number;
+  properties: PropertyAccess[];
   id: number;
   username: string;
   role: string;

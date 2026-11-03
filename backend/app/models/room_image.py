@@ -5,12 +5,13 @@ from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.property import PropertyScoped
 
 if TYPE_CHECKING:
     from app.models.room import Room
 
 
-class RoomImage(Base):
+class RoomImage(PropertyScoped, Base):
     """A room photo, stored inline in the database and served as an image."""
 
     __tablename__ = "room_images"

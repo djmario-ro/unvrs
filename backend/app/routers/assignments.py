@@ -43,7 +43,6 @@ async def _unique_pin(db: AsyncSession, room_id: int) -> str:
     raise HTTPException(status_code=500, detail="Could not allocate a unique PIN")
 
 
-
 _LOCAL_TZ = ZoneInfo(settings.timezone)
 
 
@@ -223,7 +222,9 @@ async def delete_assignment(assignment_id: int, db: AsyncSession = Depends(get_d
     assignment = await db.get(GuestRoom, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
-    await audit_log.log(db, "assignment.delete", f"Removed assignment id={assignment_id}")
+    await audit_log.log(
+        db, "assignment.delete", f"Removed assignment id={assignment_id}"
+    )
     await db.delete(assignment)
     await db.commit()
 
@@ -238,7 +239,9 @@ async def regenerate_pin(assignment_id: int, db: AsyncSession = Depends(get_db))
     assignment.key_version += 1
     assignment.access_revoked_at = None
     await audit_log.log(
-        db, "assignment.pin_regenerated", f"PIN regenerated for assignment id={assignment_id}"
+        db,
+        "assignment.pin_regenerated",
+        f"PIN regenerated for assignment id={assignment_id}",
     )
     await db.commit()
     return await _load_assignment(db, assignment_id)
@@ -254,10 +257,12 @@ async def send_pin(
 
     assignment = await _load_assignment(db, assignment_id)
     if not assignment.guest.phone:
-        raise HTTPException(
-            status_code=400, detail="Guest has no phone number on file"
-        )
+        raise HTTPException(status_code=400, detail="Guest has no phone number on file")
 
+    if assignment.property_id != 1:
+        raise HTTPException(
+            409, "Messaging integration is not configured for this property"
+        )
     phone = messaging.normalize_phone(assignment.guest.phone)
     text = _build_pin_message(assignment)
 
@@ -283,6 +288,7 @@ async def send_pin(
     logs: list[MessageLog] = []
     for channel, (status_, error) in zip(body.channels, outcomes):
         entry = MessageLog(
+            property_id=assignment.property_id,
             assignment_id=assignment.id,
             channel=channel,
             recipient=phone,
@@ -308,23 +314,44 @@ async def list_devices(assignment_id: int, db: AsyncSession = Depends(get_db)):
     stay = await db.get(GuestRoom, assignment_id)
     if not stay:
         raise HTTPException(404, "Assignment not found")
-    result = await db.execute(select(GuestDevice).where(GuestDevice.assignment_id == assignment_id).order_by(GuestDevice.created_at.desc()))
+    result = await db.execute(
+        select(GuestDevice)
+        .where(GuestDevice.assignment_id == assignment_id)
+        .order_by(GuestDevice.created_at.desc())
+    )
     now = datetime.now(timezone.utc)
-    return [{"id": d.id, "device_name": d.device_name, "created_at": d.created_at,
-             "last_used_at": d.last_used_at, "expires_at": d.expires_at,
-             "active": not d.revoked_at and not stay.access_revoked_at and d.key_version == stay.key_version
-             and d.room_id == stay.room_id and now < d.expires_at
-             and (stay.check_in is None or stay.check_in <= now) and (stay.check_out is None or now < stay.check_out)}
-            for d in result.scalars()]
+    return [
+        {
+            "id": d.id,
+            "device_name": d.device_name,
+            "created_at": d.created_at,
+            "last_used_at": d.last_used_at,
+            "expires_at": d.expires_at,
+            "active": not d.revoked_at
+            and not stay.access_revoked_at
+            and d.key_version == stay.key_version
+            and d.room_id == stay.room_id
+            and now < d.expires_at
+            and (stay.check_in is None or stay.check_in <= now)
+            and (stay.check_out is None or now < stay.check_out),
+        }
+        for d in result.scalars()
+    ]
 
 
 @router.post("/{assignment_id}/devices/{device_id}/revoke", status_code=204)
-async def revoke_device(assignment_id: int, device_id: int, db: AsyncSession = Depends(get_db)):
+async def revoke_device(
+    assignment_id: int, device_id: int, db: AsyncSession = Depends(get_db)
+):
     device = await db.get(GuestDevice, device_id)
     if not device or device.assignment_id != assignment_id:
         raise HTTPException(404, "Device not found")
     device.revoked_at = datetime.now(timezone.utc)
-    await audit_log.log(db, "door.device_revoked", f"Device id={device_id} revoked for booking id={assignment_id}")
+    await audit_log.log(
+        db,
+        "door.device_revoked",
+        f"Device id={device_id} revoked for booking id={assignment_id}",
+    )
     await db.commit()
 
 
@@ -335,5 +362,7 @@ async def revoke_access(assignment_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Assignment not found")
     stay.access_revoked_at = datetime.now(timezone.utc)
     stay.key_version += 1
-    await audit_log.log(db, "door.stay_revoked", f"Guest access disabled for booking id={assignment_id}")
+    await audit_log.log(
+        db, "door.stay_revoked", f"Guest access disabled for booking id={assignment_id}"
+    )
     await db.commit()

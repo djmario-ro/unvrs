@@ -7,198 +7,178 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import {
-  Hotel,
-  LayoutDashboard,
-  BedDouble,
-  MessageCircle,
-  ClipboardList,
-  ShieldCheck,
-  CalendarPlus,
-  CalendarRange,
-  Users,
-  CalendarCheck,
-  Building2,
-  ConciergeBell,
-  LogOut,
-  Menu,
-  X,
-} from "lucide-react";
+import { Hotel, LogOut, Menu, X } from "lucide-react";
 import { clsx } from "clsx";
-
 import { logout } from "../api/auth";
 import { useMe } from "../hooks/useMe";
+import {
+  hasRole,
+  MANAGERS,
+  RECEPTION,
+  HOUSEKEEPING,
+  MAINTENANCE,
+} from "../lib/access";
+import type { Role } from "../api/types";
 import Spinner from "../components/Spinner";
 
-const FRONTDESK_NAV = [
-  { to: "/app/calendar", label: "Calendar", icon: CalendarRange },
-  { to: "/app/booking", label: "New Booking", icon: CalendarPlus },
-  { to: "/app/guests", label: "Guests", icon: Users },
-  { to: "/app/bookings", label: "Bookings", icon: CalendarCheck },
-];
-
-const PROPERTY_NAV = [
-  { to: "/app/rooms", label: "Rooms", icon: BedDouble },
-  { to: "/app/whatsapp", label: "WhatsApp", icon: MessageCircle },
-  { to: "/app/audit", label: "Audit Log", icon: ClipboardList },
-  { to: "/app/users", label: "Users", icon: ShieldCheck },
-];
-
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  clsx(
-    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-    isActive
-      ? "bg-brand-700 text-white"
-      : "text-brand-200 hover:bg-brand-800 hover:text-white"
-  );
+const sections: { label: string; roles: Role[]; links: [string, string][] }[] =
+  [
+    {
+      label: "Front desk",
+      roles: RECEPTION,
+      links: [
+        ["dashboard", "Dashboard"],
+        ["calendar", "Calendar"],
+        ["booking", "New booking"],
+        ["guests", "Guests"],
+        ["bookings", "Bookings"],
+      ],
+    },
+    {
+      label: "Property",
+      roles: MANAGERS,
+      links: [
+        ["rooms", "Rooms"],
+        ["users", "Staff access"],
+        ["audit", "Audit log"],
+        ["whatsapp", "WhatsApp"],
+      ],
+    },
+    {
+      label: "Housekeeping",
+      roles: HOUSEKEEPING,
+      links: [["housekeeping", "Housekeeping"]],
+    },
+    {
+      label: "Maintenance",
+      roles: MAINTENANCE,
+      links: [["maintenance", "Maintenance"]],
+    },
+    { label: "Owner", roles: ["owner"], links: [["properties", "Properties"]] },
+  ];
 
 export default function AppLayout() {
   const { data: user, isLoading, isError } = useMe();
-  const location = useLocation();
-  const nav = useNavigate();
-  const qc = useQueryClient();
+  const location = useLocation(),
+    nav = useNavigate(),
+    qc = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  // Close the mobile drawer whenever the route changes.
   useEffect(() => setMobileOpen(false), [location.pathname]);
-
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSuccess: (result) => {
       qc.clear();
+      sessionStorage.removeItem("unvrs-property");
       if (result.logout_url) window.location.assign(result.logout_url);
       else nav("/login", { replace: true });
     },
   });
-
-  if (isLoading) {
+  if (isLoading)
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
-        <Spinner size={32} />
+      <div className="min-h-screen flex items-center justify-center">
+        <Spinner />
       </div>
     );
-  }
   if (isError || !user) return <Navigate to="/login" replace />;
-
-  const isAdmin = user.role === "admin";
-  const onProperty = PROPERTY_NAV.some((n) => n.to === location.pathname);
-  const section: "property" | "frontdesk" =
-    isAdmin && onProperty ? "property" : "frontdesk";
-  const items = section === "property" ? PROPERTY_NAV : FRONTDESK_NAV;
-
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
-      {/* Mobile top bar */}
-      <header className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-brand-900 flex items-center gap-3 px-4">
-        <button
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
-          className="text-white p-1 -ml-1"
-        >
-          <Menu size={22} />
+      <header className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-brand-900 flex items-center gap-3 px-4 text-white">
+        <button aria-label="Open menu" onClick={() => setMobileOpen(true)}>
+          <Menu />
         </button>
-        <Hotel className="text-brand-300" size={20} />
-        <span className="text-white font-semibold tracking-tight">Retreat 480</span>
+        <Hotel />
+        {user.properties.find((p) => p.id === user.property_id)?.name}
       </header>
-
-      {/* Mobile backdrop */}
       {mobileOpen && (
         <div
           className="lg:hidden fixed inset-0 z-40 bg-black/40"
           onClick={() => setMobileOpen(false)}
-          aria-hidden
         />
       )}
-
       <aside
         className={clsx(
-          "w-60 flex-shrink-0 bg-brand-900 flex flex-col z-50",
-          "fixed inset-y-0 left-0 transform transition-transform duration-200",
-          "lg:static lg:translate-x-0",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
+          "w-60 flex-shrink-0 bg-brand-900 text-white flex flex-col z-50 fixed inset-y-0 left-0 transform transition-transform lg:static lg:translate-x-0",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-brand-800">
-          <Hotel className="text-brand-300" size={24} />
-          <span className="text-white font-semibold text-lg tracking-tight">
-            Retreat 480
-          </span>
+        <div className="flex items-center gap-3 p-5 border-b border-brand-800">
+          <Hotel />
+          <span className="font-semibold">UNVRS</span>
           <button
-            onClick={() => setMobileOpen(false)}
+            className="lg:hidden ml-auto"
             aria-label="Close menu"
-            className="lg:hidden ml-auto text-brand-300 hover:text-white p-1"
+            onClick={() => setMobileOpen(false)}
           >
-            <X size={20} />
+            <X />
           </button>
         </div>
-
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <NavLink to="/app/dashboard" className={navLinkClass}>
-            <LayoutDashboard size={18} />
-            Dashboard
-          </NavLink>
-
-          {isAdmin && (
-            <div className="grid grid-cols-2 gap-1 p-1 my-3 rounded-lg bg-brand-800/60">
-              <button
-                onClick={() => nav("/app/booking")}
-                className={clsx(
-                  "flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  section === "frontdesk"
-                    ? "bg-brand-600 text-white"
-                    : "text-brand-200 hover:text-white"
-                )}
-              >
-                <ConciergeBell size={14} /> Front Desk
-              </button>
-              <button
-                onClick={() => nav("/app/rooms")}
-                className={clsx(
-                  "flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  section === "property"
-                    ? "bg-brand-600 text-white"
-                    : "text-brand-200 hover:text-white"
-                )}
-              >
-                <Building2 size={14} /> Property
-              </button>
-            </div>
-          )}
-
-          <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-brand-400">
-            {section === "property" ? "Property Management" : "Front Desk"}
-          </p>
-          {items.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={navLinkClass}>
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="border-t border-brand-800 px-3 py-3">
-          <div className="flex items-center gap-2 px-3 py-2 mb-1">
-            <div className="w-8 h-8 rounded-full bg-brand-700 flex items-center justify-center text-sm font-semibold text-white uppercase">
-              {user.username.slice(0, 2)}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-white font-medium truncate">
-                {user.username}
-              </p>
-              <p className="text-[11px] text-brand-300 capitalize">{user.role}</p>
-            </div>
-          </div>
-          <button
-            onClick={() => logoutMutation.mutate()}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-brand-200 hover:bg-brand-800 hover:text-white transition-colors"
+        <div className="p-3">
+          <label
+            htmlFor="property"
+            className="block text-xs text-brand-200 mb-1"
           >
-            <LogOut size={18} />
+            Property
+          </label>
+          <select
+            id="property"
+            value={user.property_id}
+            className="w-full bg-brand-800 rounded-lg p-2 text-sm"
+            onChange={(e) => {
+              sessionStorage.setItem("unvrs-property", e.target.value);
+              qc.clear();
+              window.location.assign("/app");
+            }}
+          >
+            {user.properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-3">
+          {sections
+            .filter((s) => hasRole(user, s.roles))
+            .map((section) => (
+              <div key={section.label} className="mb-3">
+                <p className="text-xs uppercase text-brand-300 px-3 py-2">
+                  {section.label}
+                </p>
+                {section.links.map(([path, label]) => (
+                  <NavLink
+                    key={path}
+                    to={`/app/${path}`}
+                    className={({ isActive }) =>
+                      clsx(
+                        "block px-3 py-2 rounded-lg text-sm",
+                        isActive
+                          ? "bg-brand-700 text-white"
+                          : "text-brand-200 hover:bg-brand-800",
+                      )
+                    }
+                  >
+                    {label}
+                  </NavLink>
+                ))}
+              </div>
+            ))}
+        </nav>
+        <div className="p-4 border-t border-brand-800">
+          <p className="font-medium">{user.username}</p>
+          <p className="text-xs text-brand-200 capitalize mb-3">
+            {user.roles.join(", ")}
+          </p>
+          <button
+            className="flex items-center gap-2 text-sm"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+          >
+            <LogOut size={16} />
             Sign out
           </button>
         </div>
       </aside>
-
-      <main className="flex-1 overflow-auto pt-14 lg:pt-0">
+      <main className="flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
         <Outlet />
       </main>
     </div>

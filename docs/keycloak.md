@@ -2,7 +2,7 @@
 
 Staging uses `https://keycloak.cloud.retreat480.com/realms/staging`, confidential
 OIDC client `unvrs-staging`. Authentication belongs to Keycloak; UNVRS alone
-assigns and checks its existing `admin` and `frontdesk` roles. Guest QR/PIN and
+assigns and checks [property-scoped staff roles](access-control.md). Guest QR/PIN and
 device-key routes do not require staff sign-in.
 
 The backend uses Authorization Code with PKCE S256, state, nonce, issuer,
@@ -30,20 +30,20 @@ Do not enable automatic registration or email-based account linking.
 
 The backend Helm chart references runtime Secret `unvrs-oidc` containing
 `OIDC_CLIENT_SECRET` and `OIDC_BOOTSTRAP_SUBJECT`. The latter explicitly links the
-existing `ADMIN_USERNAME` row to that Keycloak user ID. Startup refuses to rebind
-an existing identity. No OIDC secret belongs in Git or GitHub Actions.
+`ADMIN_USERNAME` row to that Keycloak user ID. Startup refuses to rebind an
+existing identity and never restores a revoked membership. No OIDC secret belongs in Git or GitHub Actions.
 
 ## Add staff
 
 1. Create the person in Keycloak's `staging` realm and set their credentials.
 2. Copy their immutable Keycloak user ID (the OIDC `sub`).
 3. In UNVRS Users, add a local username, that Keycloak user ID and the application
-   role. Existing users can be linked through Edit; username/email similarity
-   never links an account automatically.
+   roles. An existing identity can join another property using the same ID. Username/email
+   similarity never links accounts automatically.
 
 Changing a password, MFA or a sign-in policy happens in Keycloak. Changing access
-or a role happens in UNVRS. Deleting a UNVRS account does not delete the person's
-Keycloak account. Signing out revokes the local session and performs standard
+or a role happens in UNVRS. Removing property access does not delete the person's Keycloak account or their
+other memberships. Signing out revokes the local session and performs standard
 Keycloak RP-initiated logout.
 
 ## Local development and rollback
@@ -54,7 +54,7 @@ To enable OIDC set `AUTH_PROVIDER=keycloak`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
 `SECRET_KEY`. The production issuer must use HTTPS. The local callback origin
 must be explicitly allowed in a separate development client.
 
-For an operational rollback, set Helm `auth.provider=local` and redeploy with the
+For a provider-only rollback using the current property-aware application, set Helm `auth.provider=local` and redeploy with the
 existing `ADMIN_USERNAME`/`ADMIN_PASSWORD` secret. Keycloak mode rejects the local
 password endpoint and old local JWTs. External-only staff need local passwords
 assigned before they can use local mode. The migration is additive; do not

@@ -5,6 +5,7 @@ matches a local `postgres:16-alpine` on port 5433). The schema is rebuilt
 from the Alembic migrations once per session — never run this against a
 database you care about.
 """
+
 import os
 import subprocess
 import sys
@@ -74,6 +75,16 @@ def migrated_database():
 @pytest.fixture(scope="session", autouse=True)
 async def seeded_admin(migrated_database):
     await _ensure_admin()
+    from app.database import AsyncSessionLocal
+    from app.models.property import PropertyMembership
+    from app.models.user import User
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        user = (await db.scalars(select(User).where(User.username == "admin"))).one()
+        membership = await db.get(PropertyMembership, (user.id, 1))
+        membership.roles = ["owner", "administrator"]
+        await db.commit()
 
 
 @pytest.fixture(autouse=True)
@@ -149,7 +160,11 @@ async def room(admin):
 
 async def make_room(client):
     r = await client.post(
-        "/api/v1/rooms", json={"name": f"Room {datetime.now().timestamp()}", "homeassistant_entity_id": "lock.test_room"}
+        "/api/v1/rooms",
+        json={
+            "name": f"Room {datetime.now().timestamp()}",
+            "homeassistant_entity_id": "lock.test_room",
+        },
     )
     assert r.status_code == 201, r.text
     return r.json()

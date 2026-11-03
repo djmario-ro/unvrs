@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
 from app.database import get_db
-from app.dependencies import require_admin
+from app.dependencies import get_current_user, require_admin
+from app.models.property import PropertyMembership
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.utils import audit as audit_log
@@ -15,124 +15,232 @@ router = APIRouter(
 )
 
 
+def check_grant(
+    current: User, roles: list[str], previous: tuple[str, ...] | list[str] = ()
+):
+    if "owner" not in current.roles and (
+        {"owner", "administrator"} & (set(roles) | set(previous))
+    ):
+        raise HTTPException(
+            403, "Only an owner can manage owner or administrator access"
+        )
+
+
 @router.get("", response_model=list[UserRead])
-async def list_users(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).order_by(User.id))
-    return result.scalars().all()
+async def list_users(
+    current: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    rows = (
+        await db.execute(
+            select(User, PropertyMembership)
+            .join(PropertyMembership, PropertyMembership.user_id == User.id)
+            .where(PropertyMembership.property_id == current.active_property_id)
+            .order_by(User.id)
+        )
+    ).all()
+    # Build response objects now: the current identity may also appear in this
+    # list and its request-local permission context must not be mutated.
+    return [
+        UserRead.model_validate(expose_copy(user, membership))
+        for user, membership in rows
+    ]
+
+
+def expose_copy(user, membership):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=user.id,
+        username=user.username,
+        effective_role=next(
+            role
+            for role in (
+                "owner",
+                "administrator",
+                "frontdesk",
+                "housekeeping",
+                "maintenance",
+            )
+            if role in membership.roles
+        ),
+        roles=membership.roles,
+        active_property_id=membership.property_id,
+        properties=[],
+        oidc_subject=user.oidc_subject,
+        created_at=user.created_at,
+    )
 
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.username == body.username))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Username already exists")
+async def create_user(
+    body: UserCreate,
+    current: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    roles = body.assigned_roles()
+    check_grant(current, roles)
     if settings.auth_provider == "keycloak":
         if body.password is not None:
-            raise HTTPException(status_code=400, detail="Passwords are managed in Keycloak")
+            raise HTTPException(400, "Passwords are managed in Keycloak")
         if not body.oidc_subject:
-            raise HTTPException(status_code=422, detail="Keycloak user ID is required to grant access")
-        duplicate = await db.execute(select(User).where(
-            User.oidc_issuer == settings.oidc_issuer.rstrip("/"), User.oidc_subject == body.oidc_subject
-        ))
-        if duplicate.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="This identity already has application access")
-    elif body.password is None:
-        raise HTTPException(status_code=422, detail="Password is required for local accounts")
-    elif body.oidc_subject is not None:
-        raise HTTPException(status_code=400, detail="Federated access is not enabled")
-    user = User(
-        username=body.username,
-        password_hash=hash_password(body.password) if settings.auth_provider == "local" else None,
-        oidc_issuer=settings.oidc_issuer.rstrip("/") if settings.auth_provider == "keycloak" else None,
-        oidc_subject=body.oidc_subject if settings.auth_provider == "keycloak" else None,
-        role=body.role,
+            raise HTTPException(422, "Keycloak user ID is required to grant access")
+        user = (
+            await db.execute(
+                select(User).where(
+                    User.oidc_issuer == settings.oidc_issuer.rstrip("/"),
+                    User.oidc_subject == body.oidc_subject,
+                )
+            )
+        ).scalar_one_or_none()
+        # An existing global identity may join another property. Neither its
+        # username nor its other memberships are changed by this operation.
+        if user is None:
+            if await db.scalar(select(User.id).where(User.username == body.username)):
+                raise HTTPException(409, "Username already exists")
+            user = User(
+                username=body.username,
+                password_hash=None,
+                oidc_issuer=settings.oidc_issuer.rstrip("/"),
+                oidc_subject=body.oidc_subject,
+                role="frontdesk",
+            )
+            db.add(user)
+            await db.flush()
+    else:
+        if not body.password:
+            raise HTTPException(422, "Password is required for local accounts")
+        if body.oidc_subject:
+            raise HTTPException(400, "Federated access is not enabled")
+        if await db.scalar(select(User.id).where(User.username == body.username)):
+            raise HTTPException(409, "Username already exists")
+        user = User(
+            username=body.username,
+            password_hash=hash_password(body.password),
+            role="frontdesk",
+        )
+        db.add(user)
+        await db.flush()
+    if await db.get(PropertyMembership, (user.id, current.active_property_id)):
+        raise HTTPException(409, "This identity already has access to this property")
+    membership = PropertyMembership(
+        user_id=user.id, property_id=current.active_property_id, roles=roles
     )
-    db.add(user)
-    await db.flush()
+    db.add(membership)
     await audit_log.log(
-        db, "user.create", f"Created user {user.username} ({user.role})"
+        db,
+        "user.create",
+        f"Granted property access to user id={user.id}: {','.join(roles)}",
     )
-    await db.refresh(user)
-    return user
-
-
-def _is_master(user: User) -> bool:
-    """The env-managed admin: created and reset from ADMIN_* on every boot."""
-    return user.username == settings.admin_username
-
-
-async def _admin_count(db: AsyncSession) -> int:
-    result = await db.execute(select(func.count()).where(User.role == "admin"))
-    return result.scalar_one()
+    await db.flush()
+    return expose_copy(user, membership)
 
 
 @router.patch("/{user_id}", response_model=UserRead)
 async def update_user(
     user_id: int,
     body: UserUpdate,
-    current: User = Depends(require_admin),
+    current: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    user = await db.get(User, user_id)
+    membership = await db.get(PropertyMembership, (user_id, current.active_property_id))
+    user = await db.get(User, user_id) if membership else None
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if _is_master(user):
+        raise HTTPException(404, "User not found in this property")
+    if settings.auth_provider == "local" and user.username == settings.admin_username:
         raise HTTPException(
-            status_code=400,
-            detail=("This administrator's access is controlled by the server bootstrap mapping"
-                    if settings.auth_provider == "keycloak" else "This account is managed by ADMIN_USERNAME/ADMIN_PASSWORD on the server"),
+            400,
+            "This account is managed by ADMIN_USERNAME and the server bootstrap mapping",
         )
-    if body.role and body.role != user.role:
-        if user.id == current.id:
-            raise HTTPException(status_code=400, detail="You cannot change your own role")
-        if user.role == "admin" and await _admin_count(db) <= 1:
-            raise HTTPException(status_code=400, detail="Cannot demote the last admin")
+    if user_id == current.id:
+        raise HTTPException(400, "You cannot change your own role or sign-in identity")
+    roles = (
+        body.assigned_roles()
+        if body.roles is not None or body.role is not None
+        else membership.roles
+    )
+    check_grant(current, roles, membership.roles)
+    if body.oidc_subject is not None and body.oidc_subject != user.oidc_subject:
+        memberships = (
+            await db.scalars(
+                select(PropertyMembership).where(PropertyMembership.user_id == user.id)
+            )
+        ).all()
+        if (
+            settings.auth_provider != "keycloak"
+            or user.oidc_subject is not None
+            or len(memberships) != 1
+        ):
+            raise HTTPException(
+                400,
+                "Sign-in identity cannot be rebound; remove this membership and invite the correct Keycloak identity",
+            )
+        duplicate = await db.scalar(
+            select(User.id).where(
+                User.oidc_issuer == settings.oidc_issuer.rstrip("/"),
+                User.oidc_subject == body.oidc_subject,
+            )
+        )
+        if duplicate:
+            raise HTTPException(
+                409, "This identity already exists; invite it to the property instead"
+            )
+        # A legacy local account can be linked for the first time only if its
+        # entire access belongs to this property. Existing global identities
+        # cannot be changed through a tenant administrator.
+        user.oidc_issuer = settings.oidc_issuer.rstrip("/")
+        user.oidc_subject = body.oidc_subject
+        user.password_hash = None
+        user.token_version += 1
     if body.password:
         if settings.auth_provider != "local":
-            raise HTTPException(status_code=400, detail="Passwords are managed in Keycloak")
+            raise HTTPException(400, "Passwords are managed in Keycloak")
+        if (
+            len(
+                (
+                    await db.scalars(
+                        select(PropertyMembership).where(
+                            PropertyMembership.user_id == user.id
+                        )
+                    )
+                ).all()
+            )
+            > 1
+        ):
+            raise HTTPException(
+                400,
+                "Shared-account passwords cannot be changed by a property administrator",
+            )
         user.password_hash = hash_password(body.password)
-        user.token_version += 1  # invalidate that user's existing sessions
-    if body.role:
-        user.role = body.role
-    if body.oidc_subject is not None:
-        if settings.auth_provider != "keycloak":
-            raise HTTPException(status_code=400, detail="Federated access is not enabled")
-        if user.id == current.id:
-            raise HTTPException(status_code=400, detail="You cannot change your own sign-in identity")
-        duplicate = await db.execute(select(User).where(
-            User.id != user.id, User.oidc_issuer == settings.oidc_issuer.rstrip("/"),
-            User.oidc_subject == body.oidc_subject,
-        ))
-        if duplicate.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="This identity already has application access")
-        if user.oidc_subject != body.oidc_subject:
-            user.oidc_issuer = settings.oidc_issuer.rstrip("/")
-            user.oidc_subject = body.oidc_subject
-            user.token_version += 1
-    await audit_log.log(db, "user.update", f"Updated user id={user_id}")
+        user.token_version += 1
+    membership.roles = roles
+    await audit_log.log(
+        db,
+        "user.update",
+        f"Updated property access for user id={user_id}: {','.join(roles)}",
+    )
     await db.flush()
-    await db.refresh(user)
-    return user
+    return expose_copy(user, membership)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    current: User = Depends(require_admin),
+    current: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if user_id == current.id:
-        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+        raise HTTPException(400, "You cannot delete your own account")
+    membership = await db.get(PropertyMembership, (user_id, current.active_property_id))
+    if not membership:
+        raise HTTPException(404, "User not found in this property")
     user = await db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if _is_master(user):
+    if settings.auth_provider == "local" and user.username == settings.admin_username:
         raise HTTPException(
-            status_code=400,
-            detail=("This administrator's access is controlled by the server bootstrap mapping"
-                    if settings.auth_provider == "keycloak" else "This account is managed by ADMIN_USERNAME/ADMIN_PASSWORD on the server"),
+            400,
+            "This account is managed by ADMIN_USERNAME and the server bootstrap mapping",
         )
-    if user.role == "admin" and await _admin_count(db) <= 1:
-        raise HTTPException(status_code=400, detail="Cannot delete the last admin")
-    await audit_log.log(db, "user.delete", f"Deleted user {user.username} (id={user_id})")
-    await db.delete(user)
+    check_grant(current, [], membership.roles)
+    await db.delete(membership)
+    await audit_log.log(
+        db, "user.delete", f"Removed property access for user id={user_id}"
+    )

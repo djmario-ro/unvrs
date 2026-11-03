@@ -6,10 +6,28 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+api.interceptors.request.use((config) => {
+  const property = sessionStorage.getItem("unvrs-property");
+  if (property && window.location.pathname.startsWith("/app"))
+    config.headers["X-Property-ID"] = property;
+  return config;
+});
+
 api.interceptors.response.use(
   (r) => r,
   (error) => {
     const status = error.response?.status;
+    // Membership can be removed while the browser remembers a property.
+    // Retry /me once without that selection to discover remaining access.
+    if (
+      status === 403 &&
+      error.config?.url === "/auth/me" &&
+      error.config.headers?.["X-Property-ID"]
+    ) {
+      sessionStorage.removeItem("unvrs-property");
+      delete error.config.headers["X-Property-ID"];
+      return api.request(error.config);
+    }
     const url: string = error.config?.url ?? "";
     // Session expired mid-use: bounce to login (but not for the auth probes
     // themselves, which the auth flow handles explicitly).
@@ -26,13 +44,15 @@ api.interceptors.response.use(
     const message = Array.isArray(detail)
       ? detail
           .map((d: { loc?: unknown[]; msg?: string }) => {
-            const field = Array.isArray(d.loc) ? d.loc.filter((l) => l !== "body").join(".") : "";
+            const field = Array.isArray(d.loc)
+              ? d.loc.filter((l) => l !== "body").join(".")
+              : "";
             return field ? `${field}: ${d.msg}` : d.msg;
           })
           .join("; ")
-      : detail ?? error.message ?? "An error occurred";
+      : (detail ?? error.message ?? "An error occurred");
     return Promise.reject(new Error(message));
-  }
+  },
 );
 
 export default api;

@@ -7,12 +7,12 @@ export const createUser = (data: {
   username: string;
   password?: string;
   oidc_subject?: string;
-  role: Role;
+  roles: Role[];
 }) => api.post<User>("/users", data).then((r) => r.data);
 
 export const updateUser = (
   id: number,
-  data: { password?: string; role?: Role; oidc_subject?: string }
+  data: { password?: string; roles?: Role[]; oidc_subject?: string },
 ) => api.patch<User>(`/users/${id}`, data).then((r) => r.data);
 
 export const deleteUser = (id: number) => api.delete(`/users/${id}`);

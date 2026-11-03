@@ -1,6 +1,9 @@
 import { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 
+import { useMe } from "./hooks/useMe";
+import { homeFor, RECEPTION, HOUSEKEEPING, MAINTENANCE } from "./lib/access";
+import RequireRoles from "./components/RequireRoles";
 import Spinner from "./components/Spinner";
 
 // The public door and login pages stay in the entry chunk (tiny, first paint).
@@ -22,6 +25,13 @@ const RoomViewPage = lazy(() => import("./pages/RoomViewPage"));
 const WhatsAppPage = lazy(() => import("./pages/admin/WhatsAppPage"));
 const AuditPage = lazy(() => import("./pages/admin/AuditPage"));
 
+const OperationsPage = lazy(() => import("./pages/OperationsPage"));
+const PropertiesPage = lazy(() => import("./pages/PropertiesPage"));
+function StaffHome() {
+  const { data: user } = useMe();
+  return user ? <Navigate to={homeFor(user)} replace /> : <Loading />;
+}
+
 function Loading() {
   return (
     <div className="flex justify-center py-20">
@@ -40,17 +50,34 @@ export default function App() {
 
         {/* Protected staff app */}
         <Route path="/app" element={<AppLayout />}>
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          <Route index element={<StaffHome />} />
+          <Route element={<RequireRoles roles={RECEPTION} />}>
+            <Route path="dashboard" element={<DashboardPage />} />
 
-          {/* Front desk — any signed-in staff */}
-          <Route path="calendar" element={<CalendarPage />} />
-          <Route path="booking" element={<BookingPage />} />
-          <Route path="guests" element={<GuestsPage />} />
-          <Route path="bookings" element={<AssignmentsPage />} />
-          <Route path="rooms/:roomId" element={<RoomViewPage />} />
+            {/* Front desk — any signed-in staff */}
+            <Route path="calendar" element={<CalendarPage />} />
+            <Route path="booking" element={<BookingPage />} />
+            <Route path="guests" element={<GuestsPage />} />
+            <Route path="bookings" element={<AssignmentsPage />} />
+            <Route path="rooms/:roomId" element={<RoomViewPage />} />
+          </Route>
+          <Route element={<RequireRoles roles={HOUSEKEEPING} />}>
+            <Route
+              path="housekeeping"
+              element={<OperationsPage mode="housekeeping" />}
+            />
+          </Route>
+          <Route element={<RequireRoles roles={MAINTENANCE} />}>
+            <Route
+              path="maintenance"
+              element={<OperationsPage mode="maintenance" />}
+            />
+          </Route>
+          <Route element={<RequireRoles roles={["owner"]} />}>
+            <Route path="properties" element={<PropertiesPage />} />
+          </Route>
 
-          {/* Property management — admin only */}
+          {/* Property management */}
           <Route element={<RequireAdmin />}>
             <Route path="rooms" element={<RoomsPage />} />
             <Route path="whatsapp" element={<WhatsAppPage />} />

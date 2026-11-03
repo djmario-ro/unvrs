@@ -7,7 +7,7 @@ async def test_login_sets_httponly_cookie(anon):
         json={"username": "admin", "password": "test-admin-password"},
     )
     assert r.status_code == 200
-    assert r.json()["role"] == "admin"
+    assert r.json()["role"] == "owner"
     cookie = r.headers["set-cookie"]
     assert cookie.startswith(f"{COOKIE_NAME}=")
     assert "HttpOnly" in cookie
