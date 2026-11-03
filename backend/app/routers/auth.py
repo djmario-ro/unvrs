@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,8 +11,16 @@ from app.schemas.user import LoginRequest, UserRead
 from app.utils import audit as audit_log
 from app.utils import ratelimit, request_context
 from app.utils.auth import create_access_token, verify_password
+from app.utils import oidc
+from app.models.oidc_session import OIDCSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/config")
+async def config():
+    return {"provider": settings.auth_provider,
+            "login_url": "/api/v1/auth/oidc/login" if settings.auth_provider == "keycloak" else None}
 
 
 @router.post("/login", response_model=UserRead)
@@ -21,6 +30,8 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
+    if settings.auth_provider != "local":
+        raise HTTPException(status_code=409, detail="Passwords are managed by Keycloak; use single sign-on")
     ip = ratelimit.client_ip(request)
     ratelimit.enforce(f"login:ip:{ip}", max_attempts=10, window_seconds=60)
     ratelimit.enforce(f"login:user:{body.username}", max_attempts=5, window_seconds=60)
@@ -49,9 +60,35 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie(key=COOKIE_NAME, path="/")
-    return {"message": "Logged out"}
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    origin = request.headers.get("origin")
+    if origin and origin != settings.frontend_origin.rstrip("/"):
+        raise HTTPException(status_code=403, detail="Invalid request origin")
+    logout_url = None
+    if settings.auth_provider == "keycloak":
+        cookie = request.cookies.get(COOKIE_NAME, "")
+        session = await db.get(OIDCSession, oidc.token_hash(cookie)) if cookie.startswith(oidc.SESSION_PREFIX) else None
+        hint = None
+        if session:
+            try:
+                hint = oidc.cipher().decrypt(session.id_token.encode()).decode()
+            except oidc.VALIDATION_ERRORS:
+                pass
+            await db.delete(session)
+        request.session.clear()
+        try:
+            redirect = await oidc.client().logout_redirect(
+                request, post_logout_redirect_uri=settings.frontend_origin.rstrip("/") + "/api/v1/auth/oidc/logged-out",
+                id_token_hint=hint, client_id=settings.oidc_client_id,
+            )
+            logout_url = redirect.headers["location"]
+        except (httpx.HTTPError, *oidc.VALIDATION_ERRORS):
+            # Local logout must still work during an identity-provider outage.
+            request.session.clear()
+    response.delete_cookie(key=COOKIE_NAME, path="/", httponly=True, secure=settings.cookie_secure,
+                           samesite=settings.cookie_samesite)
+    response.headers["Cache-Control"] = "no-store"
+    return {"message": "Logged out", "logout_url": logout_url}
 
 
 @router.get("/me", response_model=UserRead)

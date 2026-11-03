@@ -87,3 +87,5 @@ helm lint charts/db charts/backend charts/frontend
 
 The backend tests build their schema from Alembic migrations and exercise staff
 roles, bookings, door access, photos, validation, sessions, and rate limits.
+
+Staff single sign-on: [Keycloak configuration and access management](docs/keycloak.md).

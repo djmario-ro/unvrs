@@ -64,9 +64,10 @@ export default function AppLayout() {
 
   const logoutMutation = useMutation({
     mutationFn: logout,
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.clear();
-      nav("/login", { replace: true });
+      if (result.logout_url) window.location.assign(result.logout_url);
+      else nav("/login", { replace: true });
     },
   });
 

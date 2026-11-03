@@ -8,15 +8,18 @@ import { clsx } from "clsx";
 import { getUsers, createUser, updateUser, deleteUser } from "../api/users";
 import type { Role, User } from "../api/types";
 import { useMe } from "../hooks/useMe";
+import { useAuthConfig } from "../hooks/useAuthConfig";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import Spinner from "../components/Spinner";
 
-const empty = { username: "", password: "", role: "frontdesk" as Role };
+const empty = { username: "", password: "", oidc_subject: "", role: "frontdesk" as Role };
 
 export default function UsersPage() {
   const qc = useQueryClient();
   const { data: me } = useMe();
+  const { data: auth, isLoading: authLoading, isError: authError } = useAuthConfig();
+  const isSSO = auth?.provider === "keycloak";
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["users"],
     queryFn: getUsers,
@@ -26,13 +29,14 @@ export default function UsersPage() {
   const [form, setForm] = useState(empty);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [editTarget, setEditTarget] = useState<User | null>(null);
-  const [editForm, setEditForm] = useState<{ password: string; role: Role }>({
+  const [editForm, setEditForm] = useState<{ password: string; role: Role; oidc_subject: string }>({
     password: "",
+    oidc_subject: "",
     role: "frontdesk",
   });
 
   const createMutation = useMutation({
-    mutationFn: () => createUser(form),
+    mutationFn: () => createUser({ username: form.username, role: form.role, ...(isSSO ? { oidc_subject: form.oidc_subject } : { password: form.password }) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
       toast.success("User created");
@@ -46,7 +50,8 @@ export default function UsersPage() {
     mutationFn: () =>
       updateUser(editTarget!.id, {
         role: editForm.role,
-        ...(editForm.password ? { password: editForm.password } : {}),
+        ...(!isSSO && editForm.password ? { password: editForm.password } : {}),
+        ...(isSSO && editForm.oidc_subject && editForm.oidc_subject !== editTarget?.oidc_subject ? { oidc_subject: editForm.oidc_subject } : {}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
@@ -57,7 +62,7 @@ export default function UsersPage() {
   });
 
   const openEdit = (u: User) => {
-    setEditForm({ password: "", role: (u.role as Role) ?? "frontdesk" });
+    setEditForm({ password: "", role: (u.role as Role) ?? "frontdesk", oidc_subject: u.oidc_subject ?? "" });
     setEditTarget(u);
   };
 
@@ -77,15 +82,15 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Users</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Staff accounts for property management and front desk
+            {isSSO ? "Manage application access and roles. Sign-in accounts and passwords are managed in Keycloak." : "Staff accounts for property management and front desk"}
           </p>
         </div>
-        <button className="btn-primary" onClick={() => setModalOpen(true)}>
+        <button className="btn-primary" disabled={authLoading || authError} onClick={() => setModalOpen(true)}>
           <Plus size={16} /> Add user
         </button>
       </div>
 
-      {isLoading ? (
+      {isLoading || authLoading ? (
         <div className="flex justify-center py-20">
           <Spinner size={32} />
         </div>
@@ -134,7 +139,7 @@ export default function UsersPage() {
                       <button
                         className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
                         onClick={() => openEdit(u)}
-                        title="Edit role / reset password"
+                        title={isSSO ? "Edit application role / linked identity" : "Edit role / reset password"}
                       >
                         <Pencil size={15} />
                       </button>
@@ -171,12 +176,13 @@ export default function UsersPage() {
             />
           </div>
           <div>
-            <label className="label">Password *</label>
+            <label className="label">{isSSO ? "Keycloak user ID *" : "Password *"}</label>
             <input
-              type="password"
+              type={isSSO ? "text" : "password"}
               className="input"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              placeholder={isSSO ? "Copy the user ID from Keycloak" : undefined}
+              value={isSSO ? form.oidc_subject : form.password}
+              onChange={(e) => setForm((f) => isSSO ? ({ ...f, oidc_subject: e.target.value }) : ({ ...f, password: e.target.value }))}
             />
           </div>
           <div>
@@ -199,7 +205,7 @@ export default function UsersPage() {
             <button
               className="btn-primary"
               onClick={() => createMutation.mutate()}
-              disabled={!form.username || !form.password || createMutation.isPending}
+              disabled={!form.username || !(isSSO ? form.oidc_subject : form.password) || createMutation.isPending}
             >
               {createMutation.isPending ? "Creating…" : "Create user"}
             </button>
@@ -228,14 +234,14 @@ export default function UsersPage() {
             </select>
           </div>
           <div>
-            <label className="label">New password</label>
+            <label className="label">{isSSO ? "Keycloak user ID" : "New password"}</label>
             <input
-              type="password"
+              type={isSSO ? "text" : "password"}
               className="input"
-              placeholder="Leave blank to keep current"
-              value={editForm.password}
+              placeholder={isSSO ? "Copy the user ID from Keycloak" : "Leave blank to keep current"}
+              value={isSSO ? editForm.oidc_subject : editForm.password}
               onChange={(e) =>
-                setEditForm((f) => ({ ...f, password: e.target.value }))
+                setEditForm((f) => isSSO ? ({ ...f, oidc_subject: e.target.value }) : ({ ...f, password: e.target.value }))
               }
             />
           </div>

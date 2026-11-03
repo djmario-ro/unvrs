@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 
 import { login } from "../api/auth";
 import { useMe } from "../hooks/useMe";
+import { useAuthConfig } from "../hooks/useAuthConfig";
 import Spinner from "../components/Spinner";
 import retreat from "../assets/retreat.webp";
 
@@ -13,6 +14,13 @@ export default function LoginPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const { data: user, isLoading } = useMe();
+  const { data: auth, isLoading: authLoading, isError: authError } = useAuthConfig();
+  const errorCode = new URLSearchParams(window.location.search).get("error");
+  const signInError = errorCode === "access_denied"
+    ? "This account has no UNVRS access. Contact a property administrator."
+    : errorCode === "oidc_failed"
+      ? "Sign-in could not be completed. Please try again."
+      : errorCode === "logout_failed" ? "You are signed out of UNVRS. Please sign in again when needed." : null;
   const [form, setForm] = useState({ username: "", password: "" });
 
   const loginMutation = useMutation({
@@ -24,7 +32,7 @@ export default function LoginPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#ebe1d7]">
         <Spinner size={32} />
@@ -80,7 +88,18 @@ export default function LoginPage() {
             <p className="text-sm text-gray-500 mt-1">Sign in to your staff account.</p>
           </div>
 
-          <form onSubmit={submit} className="space-y-4">
+          {signInError && <p role="alert" className="mb-4 text-sm text-red-700">{signInError}</p>}
+          {authError ? (
+            <p role="alert" className="text-sm text-red-700">Sign-in is currently unavailable. Please reload and try again.</p>
+          ) : auth?.provider === "keycloak" ? (
+            <button
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-[#b8492e] hover:bg-[#a4402a] text-white font-medium py-2.5 transition-colors"
+              onClick={() => window.location.assign(auth.login_url! + (errorCode === "access_denied" ? "?switch_account=true" : ""))}
+            >
+              {errorCode === "access_denied" ? "Sign in with another account" : "Sign in with Keycloak"}
+              <LogIn size={16} />
+            </button>
+          ) : <form onSubmit={submit} className="space-y-4">
             <div>
               <label className="label" htmlFor="username">
                 Username
@@ -113,7 +132,7 @@ export default function LoginPage() {
               {loginMutation.isPending ? "Signing in…" : "Sign in"}
               <LogIn size={16} />
             </button>
-          </form>
+          </form>}
         </div>
       </div>
     </div>

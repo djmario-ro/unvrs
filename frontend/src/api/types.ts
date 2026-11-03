@@ -77,6 +77,7 @@ export interface User {
   id: number;
   username: string;
   role: string;
+  oidc_subject: string | null;
   created_at: string;
 }
 

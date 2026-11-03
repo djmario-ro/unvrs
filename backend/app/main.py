@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from starlette.middleware.sessions import SessionMiddleware
+from urllib.parse import urlsplit
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
@@ -20,6 +22,7 @@ from app.routers import (
     door,
     guests,
     messaging,
+    oidc,
     rooms,
     users,
 )
@@ -47,8 +50,14 @@ def _check_production_secrets() -> None:
     problems = []
     if settings.secret_key == _DEFAULT_SECRET:
         problems.append("SECRET_KEY is still the default placeholder")
-    if settings.admin_password == "admin":
+    if settings.auth_provider == "local" and settings.admin_password == "admin":
         problems.append("ADMIN_PASSWORD is still the default 'admin'")
+    if settings.auth_provider == "keycloak":
+        issuer = urlsplit(settings.oidc_issuer)
+        if issuer.scheme != "https" or not issuer.netloc or issuer.query or issuer.fragment or issuer.username:
+            problems.append("OIDC_ISSUER must be a fixed HTTPS realm URL")
+        if not settings.oidc_client_id or not settings.oidc_client_secret or not settings.oidc_bootstrap_subject:
+            problems.append("OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and OIDC_BOOTSTRAP_SUBJECT are required")
     if problems:
         raise RuntimeError(
             "Refusing to start: "
@@ -69,6 +78,20 @@ async def _ensure_admin() -> None:
             select(User).where(User.username == settings.admin_username)
         )
         user = result.scalar_one_or_none()
+        if settings.auth_provider == "keycloak":
+            expected = (settings.oidc_issuer.rstrip("/"), settings.oidc_bootstrap_subject)
+            if user is None:
+                user = User(username=settings.admin_username, password_hash=None, role="admin")
+                db.add(user)
+            if user.oidc_issuer is not None and (user.oidc_issuer, user.oidc_subject) != expected:
+                raise RuntimeError("Refusing to rebind the bootstrap administrator to a different identity")
+            if user.oidc_subject is None:
+                user.oidc_issuer, user.oidc_subject = expected
+                user.token_version = (user.token_version or 0) + 1
+            user.role = "admin"
+            await db.commit()
+            _app_logger.info("Verified explicit Keycloak mapping for administrator '%s'", settings.admin_username)
+            return
         if user is None:
             db.add(
                 User(
@@ -103,12 +126,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Only a short-lived signed state/nonce/PKCE cookie is stored here. OAuth access
+# and refresh tokens are kept encrypted in the backend database, not this cookie.
+app.add_middleware(
+    SessionMiddleware, secret_key=settings.secret_key,
+    session_cookie="gh_oidc_flow", max_age=300,
+    path="/api/v1/auth/oidc", same_site="lax", https_only=settings.cookie_secure,
+)
+
 
 # Unique-constraint names (Postgres defaults) → messages staff can act on.
 _UNIQUE_MESSAGES = {
     "guests_email_key": "A guest with this email already exists",
     "rooms_name_key": "A room with this name already exists",
     "ix_users_username": "Username already exists",
+    "uq_users_oidc_identity": "This Keycloak identity already has application access",
 }
 
 
@@ -155,6 +187,7 @@ app.add_middleware(
 
 # Public: authentication and the guest-facing door client.
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(oidc.router, prefix="/api/v1")
 app.include_router(door.router, prefix="/api/v1")
 
 # Any signed-in staff member (admin or front desk).

@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.config import settings
 from app.models.user import User
 from app.utils import request_context
 from app.utils.auth import decode_token
@@ -17,12 +18,23 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
+    if settings.auth_provider == "keycloak":
+        from app.utils import oidc
+        if not token.startswith(oidc.SESSION_PREFIX):
+            raise HTTPException(status_code=401, detail="Sign in with Keycloak")
+        user = await oidc.current_user(db, token)
+        request_context.actor.set((user.id, user.username))
+        return user
     payload = decode_token(token)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session"
         )
-    user = await db.get(User, int(payload["sub"]))
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid session")
+    user = await db.get(User, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
