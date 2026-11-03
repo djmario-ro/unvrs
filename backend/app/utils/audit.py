@@ -8,6 +8,7 @@ from app.utils import request_context
 def _entry(operation: str, message: str) -> Audit:
     who = request_context.actor.get()
     return Audit(
+        property_id=request_context.property_id.get(),
         operation=operation,
         message=message,
         actor_id=who[0] if who else None,

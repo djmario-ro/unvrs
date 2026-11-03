@@ -5,12 +5,13 @@ from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.property import PropertyScoped
 
 if TYPE_CHECKING:
     from app.models.guest_room import GuestRoom
 
 
-class MessageLog(Base):
+class MessageLog(PropertyScoped, Base):
     """Records every PIN delivery attempt over SMS or WhatsApp."""
 
     __tablename__ = "message_logs"

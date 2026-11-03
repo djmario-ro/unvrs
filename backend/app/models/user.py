@@ -7,12 +7,18 @@ from app.database import Base
 
 
 class User(Base):
-    """A staff account. role is 'admin' (property) or 'frontdesk' (reception)."""
+    """A global staff identity; property memberships authorize access.
+
+    The legacy role column is retained for compatibility with old images only.
+    """
 
     __tablename__ = "users"
     __table_args__ = (
         UniqueConstraint("oidc_issuer", "oidc_subject", name="uq_users_oidc_identity"),
-        CheckConstraint("(oidc_issuer IS NULL) = (oidc_subject IS NULL)", name="ck_users_oidc_identity_pair"),
+        CheckConstraint(
+            "(oidc_issuer IS NULL) = (oidc_subject IS NULL)",
+            name="ck_users_oidc_identity_pair",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -27,3 +33,21 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+    @property
+    def roles(self) -> list[str]:
+        return getattr(self, "_active_roles", [])
+
+    @property
+    def effective_role(self) -> str:
+        from app.models.property import ROLES
+
+        return next((role for role in ROLES if role in self.roles), "frontdesk")
+
+    @property
+    def active_property_id(self) -> int | None:
+        return getattr(self, "_active_property_id", None)
+
+    @property
+    def properties(self) -> list[dict]:
+        return getattr(self, "_properties", [])

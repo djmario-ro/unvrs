@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, ShieldCheck } from "lucide-react";
 import toast from "react-hot-toast";
-import { format } from "date-fns";
-import { clsx } from "clsx";
-
 import { getUsers, createUser, updateUser, deleteUser } from "../api/users";
 import type { Role, User } from "../api/types";
 import { useMe } from "../hooks/useMe";
@@ -12,146 +8,145 @@ import { useAuthConfig } from "../hooks/useAuthConfig";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import Spinner from "../components/Spinner";
-
-const empty = { username: "", password: "", oidc_subject: "", role: "frontdesk" as Role };
-
+const ALL_ROLES: Role[] = [
+  "owner",
+  "administrator",
+  "frontdesk",
+  "housekeeping",
+  "maintenance",
+];
+const empty = {
+  username: "",
+  password: "",
+  oidc_subject: "",
+  roles: ["frontdesk"] as Role[],
+};
 export default function UsersPage() {
   const qc = useQueryClient();
   const { data: me } = useMe();
-  const { data: auth, isLoading: authLoading, isError: authError } = useAuthConfig();
+  const {
+    data: auth,
+    isLoading: authLoading,
+    isError: authError,
+  } = useAuthConfig();
   const isSSO = auth?.provider === "keycloak";
-  const { data: users = [], isLoading } = useQuery({
-    queryKey: ["users"],
-    queryFn: getUsers,
-  });
-
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState(empty);
-  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
-  const [editTarget, setEditTarget] = useState<User | null>(null);
-  const [editForm, setEditForm] = useState<{ password: string; role: Role; oidc_subject: string }>({
-    password: "",
-    oidc_subject: "",
-    role: "frontdesk",
-  });
-
-  const createMutation = useMutation({
-    mutationFn: () => createUser({ username: form.username, role: form.role, ...(isSSO ? { oidc_subject: form.oidc_subject } : { password: form.password }) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["users"] });
-      toast.success("User created");
-      setModalOpen(false);
-      setForm(empty);
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const editMutation = useMutation({
+  const {
+    data: users = [],
+    isLoading,
+    isError,
+  } = useQuery({ queryKey: ["users"], queryFn: getUsers });
+  const [form, setForm] = useState(empty),
+    [open, setOpen] = useState(false),
+    [editing, setEditing] = useState<User | null>(null),
+    [removing, setRemoving] = useState<User | null>(null);
+  const owner = me?.roles.includes("owner");
+  const grantable = owner
+    ? ALL_ROLES
+    : ALL_ROLES.filter((r) => r !== "owner" && r !== "administrator");
+  const save = useMutation({
     mutationFn: () =>
-      updateUser(editTarget!.id, {
-        role: editForm.role,
-        ...(!isSSO && editForm.password ? { password: editForm.password } : {}),
-        ...(isSSO && editForm.oidc_subject && editForm.oidc_subject !== editTarget?.oidc_subject ? { oidc_subject: editForm.oidc_subject } : {}),
-      }),
+      editing
+        ? updateUser(editing.id, {
+            roles: form.roles,
+            ...(isSSO && !editing.oidc_subject && form.oidc_subject
+              ? { oidc_subject: form.oidc_subject }
+              : {}),
+            ...(!isSSO && form.password ? { password: form.password } : {}),
+          })
+        : createUser({
+            username: form.username,
+            roles: form.roles,
+            ...(isSSO
+              ? { oidc_subject: form.oidc_subject }
+              : { password: form.password }),
+          }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
-      toast.success("User updated");
-      setEditTarget(null);
+      setOpen(false);
+      toast.success("Property access saved");
     },
     onError: (e: Error) => toast.error(e.message),
   });
-
-  const openEdit = (u: User) => {
-    setEditForm({ password: "", role: (u.role as Role) ?? "frontdesk", oidc_subject: u.oidc_subject ?? "" });
-    setEditTarget(u);
-  };
-
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteUser(deleteTarget!.id),
+  const remove = useMutation({
+    mutationFn: () => deleteUser(removing!.id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
-      toast.success("User deleted");
-      setDeleteTarget(null);
+      setRemoving(null);
+      toast.success("Property access removed");
     },
     onError: (e: Error) => toast.error(e.message),
   });
-
+  const editable = (u: User) =>
+    u.id !== me?.id &&
+    (owner || !u.roles.some((r) => r === "owner" || r === "administrator"));
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div className="p-4 sm:p-8">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {isSSO ? "Manage application access and roles. Sign-in accounts and passwords are managed in Keycloak." : "Staff accounts for property management and front desk"}
+          <h1 className="text-2xl font-bold">Staff access</h1>
+          <p className="text-sm text-gray-500">
+            Roles apply to the selected property. Sign-in accounts and passwords
+            are managed in Keycloak.
           </p>
         </div>
-        <button className="btn-primary" disabled={authLoading || authError} onClick={() => setModalOpen(true)}>
-          <Plus size={16} /> Add user
+        <button
+          className="btn-primary"
+          disabled={authLoading || authError}
+          onClick={() => {
+            setEditing(null);
+            setForm(empty);
+            setOpen(true);
+          }}
+        >
+          Add access
         </button>
       </div>
-
-      {isLoading || authLoading ? (
-        <div className="flex justify-center py-20">
-          <Spinner size={32} />
-        </div>
+      {isLoading ? (
+        <Spinner />
+      ) : isError ? (
+        <p role="alert">Could not load staff access.</p>
       ) : (
         <div className="card overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
-              <tr>
-                {["User", "Role", "Created", ""].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide"
-                  >
-                    {h}
-                  </th>
-                ))}
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left">
+                <th className="p-4">User</th>
+                <th>Roles</th>
+                <th>Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-900">
+                <tr key={u.id} className="border-t">
+                  <td className="p-4">
                     {u.username}
-                    {u.id === me?.id && (
-                      <span className="ml-2 text-xs text-gray-400">(you)</span>
-                    )}
+                    {u.id === me?.id ? " (you)" : ""}
                   </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={clsx(
-                        "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium capitalize",
-                        u.role === "admin"
-                          ? "bg-brand-50 text-brand-700"
-                          : "bg-gray-100 text-gray-600"
-                      )}
+                  <td className="capitalize">{u.roles.join(", ")}</td>
+                  <td className="space-x-3">
+                    <button
+                      disabled={!editable(u) || authLoading || authError}
+                      className="text-brand-600 disabled:opacity-30"
+                      onClick={() => {
+                        setEditing(u);
+                        setForm({
+                          username: u.username,
+                          password: "",
+                          oidc_subject: u.oidc_subject ?? "",
+                          roles: u.roles,
+                        });
+                        setOpen(true);
+                      }}
                     >
-                      {u.role === "admin" && <ShieldCheck size={12} />}
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {format(new Date(u.created_at), "dd MMM yyyy")}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-                        onClick={() => openEdit(u)}
-                        title={isSSO ? "Edit application role / linked identity" : "Edit role / reset password"}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                        onClick={() => setDeleteTarget(u)}
-                        disabled={u.id === me?.id}
-                        title={u.id === me?.id ? "You can't delete yourself" : "Delete user"}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
+                      Edit
+                    </button>
+                    <button
+                      disabled={!editable(u)}
+                      className="text-red-600 disabled:opacity-30"
+                      onClick={() => setRemoving(u)}
+                    >
+                      Remove access
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -159,114 +154,130 @@ export default function UsersPage() {
           </table>
         </div>
       )}
-
       <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Add user"
+        open={open}
+        onClose={() => setOpen(false)}
+        title={
+          editing ? `Access for ${editing.username}` : "Grant property access"
+        }
         size="sm"
       >
         <div className="space-y-4">
-          <div>
-            <label className="label">Username *</label>
-            <input
-              className="input"
-              value={form.username}
-              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label">{isSSO ? "Keycloak user ID *" : "Password *"}</label>
-            <input
-              type={isSSO ? "text" : "password"}
-              className="input"
-              placeholder={isSSO ? "Copy the user ID from Keycloak" : undefined}
-              value={isSSO ? form.oidc_subject : form.password}
-              onChange={(e) => setForm((f) => isSSO ? ({ ...f, oidc_subject: e.target.value }) : ({ ...f, password: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label">Role</label>
-            <select
-              className="input"
-              value={form.role}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, role: e.target.value as Role }))
-              }
-            >
-              <option value="frontdesk">Front desk</option>
-              <option value="admin">Admin (property)</option>
-            </select>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button className="btn-secondary" onClick={() => setModalOpen(false)}>
+          {!editing && (
+            <>
+              <label className="label">
+                Username
+                <input
+                  className="input"
+                  value={form.username}
+                  onChange={(e) =>
+                    setForm({ ...form, username: e.target.value })
+                  }
+                />
+              </label>
+              <label className="label">
+                {isSSO ? "Keycloak user ID" : "Password"}
+                <input
+                  className="input"
+                  type={isSSO ? "text" : "password"}
+                  value={isSSO ? form.oidc_subject : form.password}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      ...(isSSO
+                        ? { oidc_subject: e.target.value }
+                        : { password: e.target.value }),
+                    })
+                  }
+                />
+              </label>
+              {isSSO && (
+                <p className="text-xs text-gray-500">
+                  Copy the immutable user ID from Keycloak. An identity already
+                  in UNVRS can be added to this property.
+                </p>
+              )}
+            </>
+          )}
+          {editing && isSSO && !editing.oidc_subject && (
+            <label className="label">
+              Link Keycloak user ID
+              <input
+                className="input"
+                value={form.oidc_subject}
+                onChange={(e) =>
+                  setForm({ ...form, oidc_subject: e.target.value })
+                }
+              />
+            </label>
+          )}
+          {editing && isSSO && editing.oidc_subject && (
+            <p className="text-xs text-gray-500">
+              Keycloak user ID: {editing.oidc_subject}. Remove and invite the
+              correct identity to change the person.
+            </p>
+          )}
+          {editing && !isSSO && (
+            <label className="label">
+              New password (optional)
+              <input
+                type="password"
+                className="input"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
+            </label>
+          )}
+          <fieldset>
+            <legend className="label">Roles</legend>
+            {grantable.map((role) => (
+              <label
+                key={role}
+                className="flex items-center gap-2 py-1 capitalize"
+              >
+                <input
+                  type="checkbox"
+                  checked={form.roles.includes(role)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      roles: e.target.checked
+                        ? [...form.roles, role]
+                        : form.roles.filter((r) => r !== role),
+                    })
+                  }
+                />
+                {role}
+              </label>
+            ))}
+          </fieldset>
+          <div className="flex justify-end gap-3">
+            <button className="btn-secondary" onClick={() => setOpen(false)}>
               Cancel
             </button>
             <button
               className="btn-primary"
-              onClick={() => createMutation.mutate()}
-              disabled={!form.username || !(isSSO ? form.oidc_subject : form.password) || createMutation.isPending}
+              disabled={
+                save.isPending ||
+                !form.roles.length ||
+                (!editing &&
+                  (!form.username ||
+                    !(isSSO ? form.oidc_subject : form.password)))
+              }
+              onClick={() => save.mutate()}
             >
-              {createMutation.isPending ? "Creating…" : "Create user"}
+              Save access
             </button>
           </div>
         </div>
       </Modal>
-
-      <Modal
-        open={!!editTarget}
-        onClose={() => setEditTarget(null)}
-        title={`Edit ${editTarget?.username ?? "user"}`}
-        size="sm"
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="label">Role</label>
-            <select
-              className="input"
-              value={editForm.role}
-              onChange={(e) =>
-                setEditForm((f) => ({ ...f, role: e.target.value as Role }))
-              }
-            >
-              <option value="frontdesk">Front desk</option>
-              <option value="admin">Admin (property)</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">{isSSO ? "Keycloak user ID" : "New password"}</label>
-            <input
-              type={isSSO ? "text" : "password"}
-              className="input"
-              placeholder={isSSO ? "Copy the user ID from Keycloak" : "Leave blank to keep current"}
-              value={isSSO ? editForm.oidc_subject : editForm.password}
-              onChange={(e) =>
-                setEditForm((f) => isSSO ? ({ ...f, oidc_subject: e.target.value }) : ({ ...f, password: e.target.value }))
-              }
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <button className="btn-secondary" onClick={() => setEditTarget(null)}>
-              Cancel
-            </button>
-            <button
-              className="btn-primary"
-              onClick={() => editMutation.mutate()}
-              disabled={editMutation.isPending}
-            >
-              {editMutation.isPending ? "Saving…" : "Save changes"}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
       <ConfirmDialog
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => deleteMutation.mutate()}
-        loading={deleteMutation.isPending}
-        title="Delete user"
-        message={`Remove user "${deleteTarget?.username}"? They will lose access immediately.`}
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => remove.mutate()}
+        loading={remove.isPending}
+        title="Remove property access"
+        message={`Remove ${removing?.username}'s access to this property? Their Keycloak account and other property memberships remain.`}
       />
     </div>
   );

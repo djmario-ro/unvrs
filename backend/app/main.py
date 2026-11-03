@@ -12,8 +12,9 @@ from urllib.parse import urlsplit
 
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_admin, require_reception
 from app.models.user import User
+from app.models.property import PropertyMembership
 from app.routers import (
     assignments,
     audit,
@@ -23,6 +24,8 @@ from app.routers import (
     guests,
     messaging,
     oidc,
+    properties,
+    operations,
     rooms,
     users,
 )
@@ -34,7 +37,9 @@ from app.utils.auth import hash_password, verify_password
 _app_logger = logging.getLogger("app")
 if not _app_logger.handlers:
     _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s - %(message)s"))
+    _handler.setFormatter(
+        logging.Formatter("%(levelname)s:     %(name)s - %(message)s")
+    )
     _app_logger.addHandler(_handler)
     _app_logger.setLevel(logging.INFO)
     _app_logger.propagate = False
@@ -54,10 +59,22 @@ def _check_production_secrets() -> None:
         problems.append("ADMIN_PASSWORD is still the default 'admin'")
     if settings.auth_provider == "keycloak":
         issuer = urlsplit(settings.oidc_issuer)
-        if issuer.scheme != "https" or not issuer.netloc or issuer.query or issuer.fragment or issuer.username:
+        if (
+            issuer.scheme != "https"
+            or not issuer.netloc
+            or issuer.query
+            or issuer.fragment
+            or issuer.username
+        ):
             problems.append("OIDC_ISSUER must be a fixed HTTPS realm URL")
-        if not settings.oidc_client_id or not settings.oidc_client_secret or not settings.oidc_bootstrap_subject:
-            problems.append("OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and OIDC_BOOTSTRAP_SUBJECT are required")
+        if (
+            not settings.oidc_client_id
+            or not settings.oidc_client_secret
+            or not settings.oidc_bootstrap_subject
+        ):
+            problems.append(
+                "OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and OIDC_BOOTSTRAP_SUBJECT are required"
+            )
     if problems:
         raise RuntimeError(
             "Refusing to start: "
@@ -69,28 +86,49 @@ def _check_production_secrets() -> None:
 async def _ensure_admin() -> None:
     """Keep the env-defined admin account in sync on every startup.
 
-    The master admin is controlled entirely by ADMIN_USERNAME / ADMIN_PASSWORD:
-    it is created if missing and its password/role are reset to match the env.
-    Other users are managed in-app by admins.
+    Identity binding stays explicit. Initial property access is granted only
+    when creating the account: a restart never restores a revoked membership.
+    Local-mode passwords remain controlled by ADMIN_PASSWORD.
     """
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(User).where(User.username == settings.admin_username)
         )
         user = result.scalar_one_or_none()
+        created = user is None
         if settings.auth_provider == "keycloak":
-            expected = (settings.oidc_issuer.rstrip("/"), settings.oidc_bootstrap_subject)
+            expected = (
+                settings.oidc_issuer.rstrip("/"),
+                settings.oidc_bootstrap_subject,
+            )
             if user is None:
-                user = User(username=settings.admin_username, password_hash=None, role="admin")
+                user = User(
+                    username=settings.admin_username, password_hash=None, role="admin"
+                )
                 db.add(user)
-            if user.oidc_issuer is not None and (user.oidc_issuer, user.oidc_subject) != expected:
-                raise RuntimeError("Refusing to rebind the bootstrap administrator to a different identity")
+            if (
+                user.oidc_issuer is not None
+                and (user.oidc_issuer, user.oidc_subject) != expected
+            ):
+                raise RuntimeError(
+                    "Refusing to rebind the bootstrap administrator to a different identity"
+                )
             if user.oidc_subject is None:
                 user.oidc_issuer, user.oidc_subject = expected
                 user.token_version = (user.token_version or 0) + 1
             user.role = "admin"
+            await db.flush()
+            if created:
+                db.add(
+                    PropertyMembership(
+                        user_id=user.id, property_id=1, roles=["administrator"]
+                    )
+                )
             await db.commit()
-            _app_logger.info("Verified explicit Keycloak mapping for administrator '%s'", settings.admin_username)
+            _app_logger.info(
+                "Verified explicit Keycloak mapping for administrator '%s'",
+                settings.admin_username,
+            )
             return
         if user is None:
             db.add(
@@ -107,6 +145,18 @@ async def _ensure_admin() -> None:
                 user.password_hash = hash_password(settings.admin_password)
             user.role = "admin"
             _app_logger.info("Synced admin user '%s' from env", settings.admin_username)
+        await db.flush()
+        seeded = (
+            await db.execute(
+                select(User).where(User.username == settings.admin_username)
+            )
+        ).scalar_one()
+        if created:
+            db.add(
+                PropertyMembership(
+                    user_id=seeded.id, property_id=1, roles=["administrator"]
+                )
+            )
         await db.commit()
 
 
@@ -129,16 +179,20 @@ app = FastAPI(
 # Only a short-lived signed state/nonce/PKCE cookie is stored here. OAuth access
 # and refresh tokens are kept encrypted in the backend database, not this cookie.
 app.add_middleware(
-    SessionMiddleware, secret_key=settings.secret_key,
-    session_cookie="gh_oidc_flow", max_age=300,
-    path="/api/v1/auth/oidc", same_site="lax", https_only=settings.cookie_secure,
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    session_cookie="gh_oidc_flow",
+    max_age=300,
+    path="/api/v1/auth/oidc",
+    same_site="lax",
+    https_only=settings.cookie_secure,
 )
 
 
 # Unique-constraint names (Postgres defaults) → messages staff can act on.
 _UNIQUE_MESSAGES = {
-    "guests_email_key": "A guest with this email already exists",
-    "rooms_name_key": "A room with this name already exists",
+    "uq_guests_property_email": "A guest with this email already exists",
+    "uq_rooms_property_name": "A room with this name already exists",
     "ix_users_username": "Username already exists",
     "uq_users_oidc_identity": "This Keycloak identity already has application access",
 }
@@ -167,14 +221,17 @@ async def integrity_error_handler(request: Request, exc: IntegrityError):
         detail = "Conflicts with an existing record"
     return JSONResponse(status_code=409, content={"detail": detail})
 
+
 @app.middleware("http")
 async def remember_client_ip(request: Request, call_next):
     """Expose the client IP to the audit log for the duration of the request."""
+    tenant_token = request_context.property_id.set(None)
     token = request_context.client_ip.set(ratelimit.client_ip(request))
     try:
         return await call_next(request)
     finally:
         request_context.client_ip.reset(token)
+        request_context.property_id.reset(tenant_token)
 
 
 app.add_middleware(
@@ -182,7 +239,7 @@ app.add_middleware(
     allow_origins=[settings.frontend_origin],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Property-ID"],
 )
 
 # Public: authentication and the guest-facing door client.
@@ -190,8 +247,11 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(oidc.router, prefix="/api/v1")
 app.include_router(door.router, prefix="/api/v1")
 
+app.include_router(properties.router, prefix="/api/v1")
+app.include_router(operations.router, prefix="/api/v1")
+
 # Any signed-in staff member (admin or front desk).
-_staff = [Depends(get_current_user)]
+_staff = [Depends(require_reception)]
 app.include_router(dashboard.router, prefix="/api/v1", dependencies=_staff)
 app.include_router(guests.router, prefix="/api/v1", dependencies=_staff)
 app.include_router(assignments.router, prefix="/api/v1", dependencies=_staff)

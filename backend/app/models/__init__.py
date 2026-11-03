@@ -19,3 +19,6 @@ __all__ = [
     "GuestDevice",
     "OIDCSession",
 ]
+
+from app.models.property import Property, PropertyMembership
+from app.models.maintenance import MaintenanceTicket

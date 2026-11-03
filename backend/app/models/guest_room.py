@@ -5,6 +5,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, fu
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.property import PropertyScoped
 
 if TYPE_CHECKING:
     from app.models.guest import Guest
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
     from app.models.room import Room
 
 
-class GuestRoom(Base):
+class GuestRoom(PropertyScoped, Base):
     """One stay of a guest in a room, with its own PIN.
 
     The same guest may have several rows for the same room (repeat visits);
@@ -31,7 +32,9 @@ class GuestRoom(Base):
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id", ondelete="CASCADE"))
     pin: Mapped[str] = mapped_column(String(10))
     key_version: Mapped[int] = mapped_column(default=0, server_default="0")
-    access_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    access_revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     check_in: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -50,5 +53,8 @@ class GuestRoom(Base):
     guest: Mapped["Guest"] = relationship("Guest", back_populates="assignments")
     room: Mapped["Room"] = relationship("Room", back_populates="assignments")
     messages: Mapped[list["MessageLog"]] = relationship(
-        "MessageLog", back_populates="assignment", cascade="all, delete-orphan", passive_deletes=True
+        "MessageLog",
+        back_populates="assignment",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

@@ -16,7 +16,7 @@ async def test_duplicate_username_is_409(admin):
 
 async def test_invalid_role_is_422(admin):
     r = await admin.post(
-        "/api/v1/users", json={"username": "desk3", "password": "password-123", "role": "owner"}
+        "/api/v1/users", json={"username": "desk3", "password": "password-123", "role": "superuser"}
     )
     assert r.status_code == 422
 

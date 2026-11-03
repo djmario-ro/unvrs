@@ -89,3 +89,5 @@ The backend tests build their schema from Alembic migrations and exercise staff
 roles, bookings, door access, photos, validation, sessions, and rate limits.
 
 Staff single sign-on: [Keycloak configuration and access management](docs/keycloak.md).
+
+Staff roles and property isolation: [Access control](docs/access-control.md).

@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, String, func
+from sqlalchemy import JSON, DateTime, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.property import PropertyScoped
 from app.utils.pin import generate_public_id
 
 if TYPE_CHECKING:
@@ -12,17 +13,22 @@ if TYPE_CHECKING:
     from app.models.room_image import RoomImage
 
 
-class Room(Base):
+class Room(PropertyScoped, Base):
     __tablename__ = "rooms"
+    __table_args__ = (
+        UniqueConstraint("property_id", "name", name="uq_rooms_property_name"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     # Unguessable id for public/guest-facing links (QR, door page)
     public_id: Mapped[str] = mapped_column(
         String(22), unique=True, index=True, default=generate_public_id
     )
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    homeassistant_entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    homeassistant_entity_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
 
     # Booking.com-style details
     room_type: Mapped[str | None] = mapped_column(String(50), nullable=True)

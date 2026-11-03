@@ -4,8 +4,11 @@
 ``get_current_user`` once the staff user is resolved. Both are contextvars,
 so they are isolated per request even under concurrency.
 """
+
 from contextvars import ContextVar
 
 # (user id, username) of the authenticated staff member, if any.
 actor: ContextVar[tuple[int, str] | None] = ContextVar("actor", default=None)
 client_ip: ContextVar[str | None] = ContextVar("client_ip", default=None)
+
+property_id: ContextVar[int | None] = ContextVar("property_id", default=None)
