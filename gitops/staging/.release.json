@@ -1,9 +1,9 @@
 {
-  "id": 41655008578,
-  "run_number": 16,
+  "id": 41676730127,
+  "run_number": 20,
   "run_attempt": 1,
-  "head_sha": "89a8420f27eed59af78270b4f2a1fa38907b829b",
-  "head_branch": "feature/ci-delivery-verification",
-  "html_url": "https://github.com/djmario-ro/unvrs/actions/runs/41655008578",
-  "version": "0.1.0-ci.16.1"
+  "head_sha": "3b1891e1f92940988ab6bcace13b1ba9c2bc8745",
+  "head_branch": "feature/keycloak-authentication",
+  "html_url": "https://github.com/djmario-ro/unvrs/actions/runs/41676730127",
+  "version": "0.1.0-ci.20.1"
 }
