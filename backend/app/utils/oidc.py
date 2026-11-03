@@ -123,4 +123,8 @@ async def current_user(db: AsyncSession, cookie: str) -> User:
             raise HTTPException(status_code=503, detail="Sign-in service unavailable; try again")
         except VALIDATION_ERRORS:
             await invalid_session(db, session)
+    # Persist rotating refresh tokens before a downstream authorization or
+    # business validation error can roll back its separate transaction. Release
+    # the session lock here as well, rather than holding it through app work.
+    await db.commit()
     return user

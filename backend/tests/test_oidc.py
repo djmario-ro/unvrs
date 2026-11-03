@@ -224,6 +224,18 @@ async def test_provider_outage_fails_closed_without_deleting_session(anon, provi
         assert await db.get(OIDCSession, oidc.token_hash(anon.cookies[COOKIE_NAME])) is not None
 
 
+async def test_refresh_is_persisted_even_when_application_authorization_denies(anon, provider):
+    await mapped_user(provider, "frontdesk")
+    await complete(anon, provider)
+    await expire_provider_session(anon)
+    assert (await anon.get("/api/v1/users")).status_code == 403
+    async with AsyncSessionLocal() as db:
+        session = await db.get(OIDCSession, oidc.token_hash(anon.cookies[COOKIE_NAME]))
+        assert session.provider_expires_at > datetime.now(timezone.utc)
+    assert (await anon.get("/api/v1/auth/me")).status_code == 200
+    assert provider.refresh_calls == 1
+
+
 async def test_role_changes_and_revocation_are_local_and_immediate(anon, provider):
     uid = await mapped_user(provider, "admin")
     await complete(anon, provider)
@@ -272,6 +284,20 @@ async def test_oidc_user_management_never_accepts_passwords(anon, provider):
 
 
 async def test_guest_room_routes_remain_public_with_oidc_enabled(anon, provider):
-    response = await anon.get("/api/v1/door/nonexistent/session")
-    # A missing room may be 404, but staff authentication must never be required.
-    assert response.status_code == 404
+    from app.models.guest import Guest
+    from app.models.guest_room import GuestRoom
+    from app.models.room import Room
+    async with AsyncSessionLocal() as db:
+        guest = Guest(firstname="OIDC", lastname="Guest")
+        room = Room(name="OIDC-" + uuid4().hex[:12])
+        db.add_all([guest, room])
+        await db.flush()
+        db.add(GuestRoom(guest_id=guest.id, room_id=room.id, pin="123456",
+                         check_out=datetime.now(timezone.utc) + timedelta(days=1)))
+        await db.commit()
+        public_id = room.public_id
+    assert COOKIE_NAME not in anon.cookies
+    response = await anon.post(f"/api/v1/door/{public_id}/session", json={"pin":"123456"})
+    assert response.status_code == 200
+    assert (await anon.get(f"/api/v1/door/{public_id}/session")).status_code == 200
+    assert (await anon.get("/api/v1/auth/me")).status_code == 401
