@@ -13,13 +13,15 @@ class LoginRequest(BaseModel):
 
 class UserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=50)
-    password: str = Field(min_length=8, max_length=200)
+    password: str | None = Field(None, min_length=8, max_length=200)
+    oidc_subject: str | None = Field(None, pattern=r"^[!-~]{1,255}$")
     role: Role = "frontdesk"
 
 
 class UserUpdate(BaseModel):
     password: str | None = Field(None, min_length=8, max_length=200)
     role: Role | None = None
+    oidc_subject: str | None = Field(None, pattern=r"^[!-~]{1,255}$")
 
 
 class UserRead(BaseModel):
@@ -28,4 +30,5 @@ class UserRead(BaseModel):
     id: int
     username: str
     role: str
+    oidc_subject: str | None = None
     created_at: datetime

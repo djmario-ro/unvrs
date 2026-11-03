@@ -6,6 +6,7 @@ from app.models.guest_room import GuestRoom
 from app.models.message_log import MessageLog
 from app.models.user import User
 from app.models.guest_device import GuestDevice
+from app.models.oidc_session import OIDCSession
 
 __all__ = [
     "Guest",
@@ -16,4 +17,5 @@ __all__ = [
     "MessageLog",
     "User",
     "GuestDevice",
+    "OIDCSession",
 ]

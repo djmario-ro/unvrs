@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     # Token validity in hours
     access_token_expire_hours: int = 12
 
+    # Staff identity provider. Application roles remain in UNVRS in either mode.
+    auth_provider: Literal["local", "keycloak"] = "local"
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    # Explicit subject allowed to link the env-managed administrator on startup.
+    oidc_bootstrap_subject: str = ""
+
     # Frontend origin for CORS
     frontend_origin: str = "http://localhost:5173"
 

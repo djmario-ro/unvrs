@@ -57,6 +57,45 @@
           }
         }
       }
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "provider",
+        "oidc"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "enum": [
+            "local",
+            "keycloak"
+          ]
+        },
+        "oidc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "issuer",
+            "clientId",
+            "existingSecret"
+          ],
+          "properties": {
+            "issuer": {
+              "type": "string",
+              "pattern": "^https://[^ /]+/realms/[a-zA-Z0-9._-]+$"
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "existingSecret": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
     }
   }
 }

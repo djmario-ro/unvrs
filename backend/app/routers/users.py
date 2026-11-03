@@ -26,9 +26,25 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Username already exists")
+    if settings.auth_provider == "keycloak":
+        if body.password is not None:
+            raise HTTPException(status_code=400, detail="Passwords are managed in Keycloak")
+        if not body.oidc_subject:
+            raise HTTPException(status_code=422, detail="Keycloak user ID is required to grant access")
+        duplicate = await db.execute(select(User).where(
+            User.oidc_issuer == settings.oidc_issuer.rstrip("/"), User.oidc_subject == body.oidc_subject
+        ))
+        if duplicate.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="This identity already has application access")
+    elif body.password is None:
+        raise HTTPException(status_code=422, detail="Password is required for local accounts")
+    elif body.oidc_subject is not None:
+        raise HTTPException(status_code=400, detail="Federated access is not enabled")
     user = User(
         username=body.username,
-        password_hash=hash_password(body.password),
+        password_hash=hash_password(body.password) if settings.auth_provider == "local" else None,
+        oidc_issuer=settings.oidc_issuer.rstrip("/") if settings.auth_provider == "keycloak" else None,
+        oidc_subject=body.oidc_subject if settings.auth_provider == "keycloak" else None,
         role=body.role,
     )
     db.add(user)
@@ -63,7 +79,8 @@ async def update_user(
     if _is_master(user):
         raise HTTPException(
             status_code=400,
-            detail="This account is managed by ADMIN_USERNAME/ADMIN_PASSWORD on the server",
+            detail=("This administrator's access is controlled by the server bootstrap mapping"
+                    if settings.auth_provider == "keycloak" else "This account is managed by ADMIN_USERNAME/ADMIN_PASSWORD on the server"),
         )
     if body.role and body.role != user.role:
         if user.id == current.id:
@@ -71,10 +88,27 @@ async def update_user(
         if user.role == "admin" and await _admin_count(db) <= 1:
             raise HTTPException(status_code=400, detail="Cannot demote the last admin")
     if body.password:
+        if settings.auth_provider != "local":
+            raise HTTPException(status_code=400, detail="Passwords are managed in Keycloak")
         user.password_hash = hash_password(body.password)
         user.token_version += 1  # invalidate that user's existing sessions
     if body.role:
         user.role = body.role
+    if body.oidc_subject is not None:
+        if settings.auth_provider != "keycloak":
+            raise HTTPException(status_code=400, detail="Federated access is not enabled")
+        if user.id == current.id:
+            raise HTTPException(status_code=400, detail="You cannot change your own sign-in identity")
+        duplicate = await db.execute(select(User).where(
+            User.id != user.id, User.oidc_issuer == settings.oidc_issuer.rstrip("/"),
+            User.oidc_subject == body.oidc_subject,
+        ))
+        if duplicate.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="This identity already has application access")
+        if user.oidc_subject != body.oidc_subject:
+            user.oidc_issuer = settings.oidc_issuer.rstrip("/")
+            user.oidc_subject = body.oidc_subject
+            user.token_version += 1
     await audit_log.log(db, "user.update", f"Updated user id={user_id}")
     await db.flush()
     await db.refresh(user)
@@ -95,7 +129,8 @@ async def delete_user(
     if _is_master(user):
         raise HTTPException(
             status_code=400,
-            detail="This account is managed by ADMIN_USERNAME/ADMIN_PASSWORD on the server",
+            detail=("This administrator's access is controlled by the server bootstrap mapping"
+                    if settings.auth_provider == "keycloak" else "This account is managed by ADMIN_USERNAME/ADMIN_PASSWORD on the server"),
         )
     if user.role == "admin" and await _admin_count(db) <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete the last admin")

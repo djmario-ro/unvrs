@@ -41,6 +41,21 @@ spec:
           envFrom:
             - secretRef: {name: {{ .Values.existingSecret }}}
           env:
+            - {name: AUTH_PROVIDER, value: {{ .Values.auth.provider | quote }}}
+            {{- if eq .Values.auth.provider "keycloak" }}
+            - {name: OIDC_ISSUER, value: {{ .Values.auth.oidc.issuer | quote }}}
+            - {name: OIDC_CLIENT_ID, value: {{ .Values.auth.oidc.clientId | quote }}}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.existingSecret }}
+                  key: OIDC_CLIENT_SECRET
+            - name: OIDC_BOOTSTRAP_SUBJECT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.existingSecret }}
+                  key: OIDC_BOOTSTRAP_SUBJECT
+            {{- end }}
             - name: HA_TOKEN
               valueFrom:
                 secretKeyRef:

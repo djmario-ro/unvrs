@@ -17,3 +17,11 @@ homeAssistant:
     0ew0TKQs3_bad4X9: script.open_door
 imagePullSecrets:
   - name: harbor-unvrs-pull
+
+# Identity is managed by Keycloak; application roles stay in the UNVRS database.
+auth:
+  provider: keycloak
+  oidc:
+    issuer: https://keycloak.cloud.retreat480.com/realms/staging
+    clientId: unvrs-staging
+    existingSecret: unvrs-oidc
