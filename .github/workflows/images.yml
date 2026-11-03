@@ -7,17 +7,18 @@ on:
       - 'backend/**'
       - 'frontend/**'
       - 'charts/**'
-      - 'scripts/package-chart.py'
+      - 'scripts/**'
       - '.github/workflows/images.yml'
+      - '.github/workflows/ci.yml'
   push:
-    branches: [main]
+    branches: ['**', '!main', '!gitops/**']
     paths:
       - 'backend/**'
       - 'frontend/**'
       - 'charts/**'
-      - 'scripts/package-chart.py'
+      - 'scripts/**'
       - '.github/workflows/images.yml'
-    tags: ['v*']
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 permissions:
@@ -31,7 +32,12 @@ env:
   REGISTRY: harbor.cloud.retreat480.com
 
 jobs:
+  validate:
+    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
   images:
+    needs: validate
     name: Build ${{ matrix.component }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -72,14 +78,7 @@ jobs:
             echo 'tags<<EOF'
             echo "$image:sha-$GITHUB_SHA"
             echo "$image:build-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-            if [[ "$GITHUB_REF" == 'refs/heads/main' ]]; then
-              echo "$image:staging"
-            elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
-              # Only Docker-compatible version tags are accepted.
-              tag="${GITHUB_REF#refs/tags/}"
-              [[ "$tag" =~ ^v[0-9][A-Za-z0-9_.-]{0,126}$ ]]
-              echo "$image:$tag"
-            fi
+            echo "$image:ci-$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -142,6 +141,7 @@ jobs:
             "$COMPONENT" "$version" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   database-chart:
+    needs: validate
     name: Publish CloudNativePG database chart
     runs-on: ubuntu-24.04
     timeout-minutes: 10

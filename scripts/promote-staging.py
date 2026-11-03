@@ -1,41 +1,19 @@
 #!/usr/bin/env python3
-"""Record an explicit published chart version for all staging applications."""
+"""Prepare an intentional GitOps-only version change; routine delivery is automatic."""
 import argparse
+import json
 from pathlib import Path
 import re
+from staging_delivery import replace_revision
 
-p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('version', help='Published chart version, e.g. 0.1.0-ci.2.1')
-a = p.parse_args()
-if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', a.version):
-    p.error('An explicit SemVer chart version is required')
-root = Path(__file__).resolve().parents[1] / 'gitops/staging'
-root.mkdir(parents=True, exist_ok=True)
-for component, wave in [('db', 0), ('backend', 10), ('frontend', 20)]:
-    namespace = 'postgres' if component == 'db' else 'unvrs-staging'
-    text = f'''apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: unvrs-{component}
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "{wave}"
-spec:
-  project: unvrs-staging
-  source:
-    repoURL: harbor.cloud.retreat480.com/unvrs
-    chart: unvrs-{component}
-    targetRevision: {a.version}
-    helm:
-      releaseName: unvrs-{component}
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: {namespace}
-  syncPolicy:
-    automated:
-      prune: false
-      selfHeal: true
-'''
-    (root / f'{component}.yaml').write_text(text)
-print('Staging chart versions set to', a.version)
-print('Commit and push gitops/staging to promote; reverting that commit rolls back.')
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('version')
+args = parser.parse_args()
+if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', args.version):
+    parser.error('An explicit chart SemVer is required')
+root = Path(__file__).resolve().parents[1]
+config = json.loads((root / 'scripts/staging-config.json').read_text())
+for component in config['components']:
+    path = root / 'gitops/staging' / (component + '.yaml')
+    path.write_text(replace_revision(path.read_text(), args.version))
+print('Prepared version change. Use a separate gitops/* PR for intentional configuration/rollback changes.')

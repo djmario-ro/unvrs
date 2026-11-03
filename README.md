@@ -24,8 +24,9 @@ Staff use the application account configured in the backend Kubernetes Secret.
 HTTP Basic authentication is disabled. Room QR pages and PIN validation are
 public; opening a door still requires a PIN valid for that room's current stay.
 
-The existing main-branch delivery system is retained: multi-architecture images
-and digest-locked OCI charts in Harbor, explicitly promoted through Argo CD.
+Development branches publish tested multi-architecture images and digest-locked
+OCI charts to Harbor. Successful builds automatically promote GitOps versions
+on main, which Argo CD watches. See docs/staging-delivery.md.
 The three charts are `charts/db`, `charts/backend`, and `charts/frontend`.
 The database chart manages a dedicated database/role on the shared CloudNativePG
 cluster, rather than running a separate PostgreSQL instance.

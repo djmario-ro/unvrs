@@ -1,0 +1,13 @@
+{
+  "project": "unvrs",
+  "components": [
+    "db",
+    "backend",
+    "frontend"
+  ],
+  "publish_jobs": [
+    "Build backend",
+    "Build frontend",
+    "Publish CloudNativePG database chart"
+  ]
+}
